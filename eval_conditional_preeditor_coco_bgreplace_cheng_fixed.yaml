@@ -1,0 +1,530 @@
+output_dir: outputs_conditional_ablationNOBG
+# Use cuda if available. Change to cpu only for debugging.
+device: cuda
+category_id_offset: 0
+
+dataset:
+  images_dir: datasets/coco-2017/validation/data
+  annotations_json: datasets/coco-2017/validation/labels.json
+
+models:
+  server_model: models/yolo26x.pt
+
+server_predict:
+  conf: 0.001
+  iou: 0.7
+  max_det: 300
+  category_map: coco91
+
+# Used only by BPG/JPEG2000 experiments. Safe to keep here.
+bpg_encoder_bin: bpgenc
+bpg_decoder_bin: bpgdec
+jp2_encoder_bin: opj_compress
+jp2_decoder_bin: opj_decompress
+
+preedit_common: &preedit_common
+  # Use best_loss.pt from the run where epoch 17 had best=1.
+  # If you manually copied the file to best_loss17.pt, change this path accordingly.
+  preedit_ckpt: runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_NOOBJECTNESS_20260701_140557/best_val.pt
+  
+  architecture: conditional_attention_preeditor_bgreplace
+  condition_mode: family_severity
+
+  base_ch: 48
+  family_emb_dim: 8
+  cond_dim: 64
+  max_delta_obj: 0.09
+  max_delta_bg: 0.03
+  attention_bias: -4.0
+
+  bg_mode: blur_replace
+  bg_blur_kernel: 51
+  bg_lowres_scale: 16
+
+experiments:
+  # -------------------------------------------------------------------
+  # JPEG baseline
+  # Training/eval severity uses DiffJPEG full range 1..99.
+  # severity = 1 - (quality - 1) / (99 - 1)
+  # -------------------------------------------------------------------
+  # - name: jpeg_q10
+  #   mode: uniform
+  #   codec_family: block_dct
+  #   jpeg_quality: 10
+
+  # - name: jpeg_q15
+  #   mode: uniform
+  #   codec_family: block_dct
+  #   jpeg_quality: 15
+
+  # - name: jpeg_q20
+  #   mode: uniform
+  #   codec_family: block_dct
+  #   jpeg_quality: 20
+
+  # - name: jpeg_q30
+  #   mode: uniform
+  #   codec_family: block_dct
+  #   jpeg_quality: 30
+
+  # - name: jpeg_q40
+  #   mode: uniform
+  #   codec_family: block_dct
+  #   jpeg_quality: 40
+
+  # - name: jpeg_q50
+  #   mode: uniform
+  #   codec_family: block_dct
+  #   jpeg_quality: 50
+
+  - name: preedit_jpeg_q10
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    jpeg_quality: 10
+    condition:
+      severity: 0.908163
+
+  - name: preedit_jpeg_q15
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    jpeg_quality: 15
+    condition:
+      severity: 0.857143
+
+  - name: preedit_jpeg_q20
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    jpeg_quality: 20
+    condition:
+      severity: 0.806122
+
+  - name: preedit_jpeg_q30
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    jpeg_quality: 30
+    condition:
+      severity: 0.704082
+
+  - name: preedit_jpeg_q40
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    jpeg_quality: 40
+    condition:
+      severity: 0.602041
+
+  - name: preedit_jpeg_q50
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    jpeg_quality: 50
+    condition:
+      severity: 0.500000
+
+  # -------------------------------------------------------------------
+  # BPG baseline
+  # Real range: QP 0..51, higher = stronger compression.
+  # severity = QP / 51
+  # -------------------------------------------------------------------
+  # - name: bpg_qp28
+  #   mode: bpg
+  #   codec_family: intra_smooth
+  #   bpg_qp: 28
+  #   bpg_qp_min: 0
+  #   bpg_qp_max: 51
+
+  # - name: bpg_qp31
+  #   mode: bpg
+  #   codec_family: intra_smooth
+  #   bpg_qp: 31
+  #   bpg_qp_min: 0
+  #   bpg_qp_max: 51
+
+  # - name: bpg_qp34
+  #   mode: bpg
+  #   codec_family: intra_smooth
+  #   bpg_qp: 34
+  #   bpg_qp_min: 0
+  #   bpg_qp_max: 51
+
+  # - name: bpg_qp37
+  #   mode: bpg
+  #   codec_family: intra_smooth
+  #   bpg_qp: 37
+  #   bpg_qp_min: 0
+  #   bpg_qp_max: 51
+
+  # - name: bpg_qp41
+  #   mode: bpg
+  #   codec_family: intra_smooth
+  #   bpg_qp: 41
+  #   bpg_qp_min: 0
+  #   bpg_qp_max: 51
+
+  # - name: bpg_qp44
+  #   mode: bpg
+  #   codec_family: intra_smooth
+  #   bpg_qp: 44
+  #   bpg_qp_min: 0
+  #   bpg_qp_max: 51
+
+  - name: preedit_bpg_qp28
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    bpg_qp: 28
+    bpg_qp_min: 0
+    bpg_qp_max: 51
+    condition:
+      severity: 0.549020
+
+  - name: preedit_bpg_qp31
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    bpg_qp: 31
+    bpg_qp_min: 0
+    bpg_qp_max: 51
+    condition:
+      severity: 0.607843
+
+  - name: preedit_bpg_qp34
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    bpg_qp: 34
+    bpg_qp_min: 0
+    bpg_qp_max: 51
+    condition:
+      severity: 0.666667
+
+  - name: preedit_bpg_qp37
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    bpg_qp: 37
+    bpg_qp_min: 0
+    bpg_qp_max: 51
+    condition:
+      severity: 0.725490
+
+  - name: preedit_bpg_qp41
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    bpg_qp: 41
+    bpg_qp_min: 0
+    bpg_qp_max: 51
+    condition:
+      severity: 0.803922
+
+  - name: preedit_bpg_qp44
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    bpg_qp: 44
+    bpg_qp_min: 0
+    bpg_qp_max: 51
+    condition:
+      severity: 0.862745
+
+  # -------------------------------------------------------------------
+  # JPEG2000 baseline
+  # OpenJPEG rate: higher ratio = stronger compression.
+  # Benchmark normalization range: 1..192.
+  # severity = (rate - 1) / (192 - 1)
+  # -------------------------------------------------------------------
+  # - name: jp2_r32
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 32
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r48
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 48
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r64
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 64
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r96
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 96
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r128
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 128
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r192
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 192
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: preedit_jp2_r32
+  #   <<: *preedit_common
+  #   mode: attention_preedit_jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 32
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+  #   condition:
+  #     severity: 0.162304
+
+  # - name: preedit_jp2_r48
+  #   <<: *preedit_common
+  #   mode: attention_preedit_jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 48
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+  #   condition:
+  #     severity: 0.246073
+
+  # - name: preedit_jp2_r64
+  #   <<: *preedit_common
+  #   mode: attention_preedit_jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 64
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+  #   condition:
+  #     severity: 0.329843
+
+  # - name: preedit_jp2_r96
+  #   <<: *preedit_common
+  #   mode: attention_preedit_jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 96
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+  #   condition:
+  #     severity: 0.497382
+
+  # - name: preedit_jp2_r128
+  #   <<: *preedit_common
+  #   mode: attention_preedit_jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 128
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+  #   condition:
+  #     severity: 0.664921
+
+  # - name: preedit_jp2_r192
+  #   <<: *preedit_common
+  #   mode: attention_preedit_jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 192
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+  #   condition:
+  #     severity: 1.000000
+
+  # -------------------------------------------------------------------
+  # BMSHJ baseline
+  # CompressAI BMSHJ range: quality 1..8, higher = better.
+  # severity = 1 - (quality - 1) / (8 - 1)
+  # -------------------------------------------------------------------
+  # - name: bmshj_q1
+  #   mode: compressai
+  #   codec_family: learned
+  #   compressai_model: bmshj2018-hyperprior
+  #   compressai_quality: 1
+
+  # - name: bmshj_q2
+  #   mode: compressai
+  #   codec_family: learned
+  #   compressai_model: bmshj2018-hyperprior
+  #   compressai_quality: 2
+
+  # - name: bmshj_q3
+  #   mode: compressai
+  #   codec_family: learned
+  #   compressai_model: bmshj2018-hyperprior
+  #   compressai_quality: 3
+
+  # - name: bmshj_q4
+  #   mode: compressai
+  #   codec_family: learned
+  #   compressai_model: bmshj2018-hyperprior
+  #   compressai_quality: 4
+
+  # - name: bmshj_q5
+  #   mode: compressai
+  #   codec_family: learned
+  #   compressai_model: bmshj2018-hyperprior
+  #   compressai_quality: 5
+
+  - name: preedit_bmshj_q1
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 1
+    condition:
+      severity: 1.000000
+
+  - name: preedit_bmshj_q2
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 2
+    condition:
+      severity: 0.857143
+
+  - name: preedit_bmshj_q3
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 3
+    condition:
+      severity: 0.714286
+
+  - name: preedit_bmshj_q4
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 4
+    condition:
+      severity: 0.571429
+
+  - name: preedit_bmshj_q5
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 5
+    condition:
+      severity: 0.428571
+  # -------------------------------------------------------------------
+  # Cheng baseline
+  # CompressAI Cheng range: quality 1..6, higher = better.
+  # severity = 1 - (quality - 1) / (6 - 1)
+  # -------------------------------------------------------------------
+  # - name: cheng_q1
+  #   mode: compressai
+  #   codec_family: bmshj
+  #   compressai_model: cheng2020-attn
+  #   compressai_quality: 1
+
+  # - name: cheng_q2
+  #   mode: compressai
+  #   codec_family: bmshj
+  #   compressai_model: cheng2020-attn
+  #   compressai_quality: 2
+
+  # - name: cheng_q3
+  #   mode: compressai
+  #   codec_family: bmshj
+  #   compressai_model: cheng2020-attn
+  #   compressai_quality: 3
+
+  # - name: cheng_q4
+  #   mode: compressai
+  #   codec_family: bmshj
+  #   compressai_model: cheng2020-attn
+  #   compressai_quality: 4
+
+  # - name: cheng_q5
+  #   mode: compressai
+  #   codec_family: bmshj
+  #   compressai_model: cheng2020-attn
+  #   compressai_quality: 5
+
+  # - name: cheng_q6
+  #   mode: compressai
+  #   codec_family: bmshj
+  #   compressai_model: cheng2020-attn
+  #   compressai_quality: 6
+
+  # -------------------------------------------------------------------
+  # BG-replacement preeditor + Cheng
+  # -------------------------------------------------------------------
+  - name: preedit_cheng_q1
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: bmshj
+    compressai_model: cheng2020-attn
+    compressai_quality: 1
+    condition:
+      severity: 1.000000
+
+  - name: preedit_cheng_q2
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: bmshj
+    compressai_model: cheng2020-attn
+    compressai_quality: 2
+    condition:
+      severity: 0.800000
+
+  - name: preedit_cheng_q3
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: bmshj
+    compressai_model: cheng2020-attn
+    compressai_quality: 3
+    condition:
+      severity: 0.600000
+
+  - name: preedit_cheng_q4
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: bmshj
+    compressai_model: cheng2020-attn
+    compressai_quality: 4
+    condition:
+      severity: 0.400000
+
+  - name: preedit_cheng_q5
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: bmshj
+    compressai_model: cheng2020-attn
+    compressai_quality: 5
+    condition:
+      severity: 0.200000
+
+  - name: preedit_cheng_q6
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: bmshj
+    compressai_model: cheng2020-attn
+    compressai_quality: 6
+    condition:
+      severity: 0.000000

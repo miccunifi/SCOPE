@@ -1,0 +1,167 @@
+output_dir: outputs_preediting_time
+# Use cuda if available. Change to cpu only for debugging.
+device: cuda
+category_id_offset: 0
+
+dataset:
+  images_dir: datasets/coco-2017/validation/data
+  annotations_json: datasets/coco-2017/validation/labels.json
+
+models:
+  server_model: models/yolo26x.pt
+
+server_predict:
+  conf: 0.001
+  iou: 0.7
+  max_det: 300
+  category_map: coco91
+
+# Used only by BPG/JPEG2000 experiments. Safe to keep here.
+bpg_encoder_bin: bpgenc
+bpg_decoder_bin: bpgdec
+jp2_encoder_bin: opj_compress
+jp2_decoder_bin: opj_decompress
+
+preedit_common: &preedit_common
+  # Use best_loss.pt from the run where epoch 17 had best=1.
+  # If you manually copied the file to best_loss17.pt, change this path accordingly.
+  preedit_ckpt: runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_NOOBJECTNESS_20260701_140557/best_val.pt
+  
+  architecture: conditional_attention_preeditor_bgreplace
+  condition_mode: family_severity
+
+  base_ch: 48
+  family_emb_dim: 8
+  cond_dim: 64
+  max_delta_obj: 0.09
+  max_delta_bg: 0.03
+  attention_bias: -4.0
+
+  bg_mode: blur_replace
+  bg_blur_kernel: 51
+  bg_lowres_scale: 16
+
+experiments:
+  # ------------------------------------------------------------
+  # Timing-only: block-DCT / JPEG-like condition
+  # ------------------------------------------------------------
+  - name: time_diffjpeg_s000
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    condition:
+      severity: 0.00
+
+  - name: time_diffjpeg_s025
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    condition:
+      severity: 0.25
+
+  - name: time_diffjpeg_s050
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    condition:
+      severity: 0.50
+
+  - name: time_diffjpeg_s075
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    condition:
+      severity: 0.75
+
+  - name: time_diffjpeg_s100
+    <<: *preedit_common
+    mode: attention_preedit_jpeg
+    codec_family: block_dct
+    condition:
+      severity: 1.00
+
+  # ------------------------------------------------------------
+  # Timing-only: BPG-like / intra-smooth condition
+  # ------------------------------------------------------------
+  - name: time_bpglike_s000
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    condition:
+      severity: 0.00
+
+  - name: time_bpglike_s025
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    condition:
+      severity: 0.25
+
+  - name: time_bpglike_s050
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    condition:
+      severity: 0.50
+
+  - name: time_bpglike_s075
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    condition:
+      severity: 0.75
+
+  - name: time_bpglike_s100
+    <<: *preedit_common
+    mode: attention_preedit_bpg
+    codec_family: intra_smooth
+    condition:
+      severity: 1.00
+
+  # ------------------------------------------------------------
+  # Timing-only: learned-codec / BMSHJ-like condition
+  # ------------------------------------------------------------
+  - name: time_bmshj_s000
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 1
+    condition:
+      severity: 0.00
+
+  - name: time_bmshj_s025
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 1
+    condition:
+      severity: 0.25
+
+  - name: time_bmshj_s050
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 1
+    condition:
+      severity: 0.50
+
+  - name: time_bmshj_s075
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 1
+    condition:
+      severity: 0.75
+
+  - name: time_bmshj_s100
+    <<: *preedit_common
+    mode: attention_preedit_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 1
+    condition:
+      severity: 1.00

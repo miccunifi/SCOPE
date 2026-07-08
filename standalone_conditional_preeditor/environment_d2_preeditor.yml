@@ -1,0 +1,35 @@
+name: d2_preeditor
+channels:
+  - nvidia/label/cuda-12.1.0
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - ninja
+  - cmake
+  - cython
+  - numpy
+  - scipy
+  - pillow
+  - opencv
+  - pycocotools
+  - cuda-toolkit
+  - pip:
+      - torch==2.4.1
+      - torchvision==0.19.1
+      - torchaudio==2.4.1
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      - fvcore
+      - iopath
+      - omegaconf
+      - hydra-core
+      - yacs
+      - tabulate
+      - tqdm
+      - matplotlib
+      - pandas
+      - scikit-image
+      - kornia
+      - compressai
+      - git+https://github.com/necla-ml/Diff-JPEG.git

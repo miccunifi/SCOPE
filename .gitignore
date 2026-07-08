@@ -1,0 +1,12 @@
+datasets/
+models/
+checkpoints/
+runs/
+outputs/
+plots/
+selected_box_visualizations_bpp/
+*.csv
+plot*.py
+__pycache__/
+*.py[cod]
+*.pyo

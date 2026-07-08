@@ -1,0 +1,300 @@
+output_dir: outputs_conditional_preeditorV4_ablation_jp2_condition_families
+device: cuda
+category_id_offset: 0
+
+dataset:
+  images_dir: datasets/coco-2017/validation/data
+  annotations_json: datasets/coco-2017/validation/labels.json
+
+models:
+  server_model: models/yolo26x.pt
+
+server_predict:
+  conf: 0.001
+  iou: 0.7
+  max_det: 300
+  category_map: coco91
+
+bpg_encoder_bin: bpgenc
+bpg_decoder_bin: bpgdec
+jp2_encoder_bin: opj_compress
+jp2_decoder_bin: opj_decompress
+
+preedit_common: &preedit_common
+  preedit_ckpt: runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_NOOBJECTNESS_20260701_140557/best_val.pt
+
+  architecture: conditional_attention_preeditor_bgreplace
+  condition_mode: family_severity
+
+  # MUST match the checkpoint
+  base_ch: 48
+  family_emb_dim: 8
+  cond_dim: 64
+
+  max_delta_obj: 0.09
+  max_delta_bg: 0.03
+  attention_bias: -4.0
+
+  bg_mode: blur_replace
+  bg_blur_kernel: 51
+  bg_lowres_scale: 16
+
+experiments:
+  # -------------------------------------------------------------------
+  # JPEG2000 baseline: actual unseen codec, no pre-editing
+  # severity = (jp2_rate - 1) / (192 - 1)
+  # -------------------------------------------------------------------
+  # - name: jp2_r32
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 32
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r48
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 48
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r64
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 64
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r96
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 96
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r128
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 128
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # - name: jp2_r192
+  #   mode: jpeg2000
+  #   codec_family: wavelet
+  #   jp2_backend: openjpeg
+  #   jp2_rate: 192
+  #   jp2_rate_min: 1
+  #   jp2_rate_max: 192
+
+  # -------------------------------------------------------------------
+  # JPEG2000 actual codec, pre-editor conditioned as block_dct
+  # -------------------------------------------------------------------
+  - name: jp2_r32_preedit_cond_block_dct
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: block_dct
+    jp2_backend: openjpeg
+    jp2_rate: 32
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.162304
+
+  - name: jp2_r48_preedit_cond_block_dct
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: block_dct
+    jp2_backend: openjpeg
+    jp2_rate: 48
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.246073
+
+  - name: jp2_r64_preedit_cond_block_dct
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: block_dct
+    jp2_backend: openjpeg
+    jp2_rate: 64
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.329843
+
+  - name: jp2_r96_preedit_cond_block_dct
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: block_dct
+    jp2_backend: openjpeg
+    jp2_rate: 96
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.497382
+
+  - name: jp2_r128_preedit_cond_block_dct
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: block_dct
+    jp2_backend: openjpeg
+    jp2_rate: 128
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.664921
+
+  - name: jp2_r192_preedit_cond_block_dct
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: block_dct
+    jp2_backend: openjpeg
+    jp2_rate: 192
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 1.000000
+
+  # -------------------------------------------------------------------
+  # JPEG2000 actual codec, pre-editor conditioned as bmshj / learned codec
+  # -------------------------------------------------------------------
+  - name: jp2_r32_preedit_cond_learned
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: learned
+    jp2_backend: openjpeg
+    jp2_rate: 32
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.162304
+
+  - name: jp2_r48_preedit_cond_learned
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: learned
+    jp2_backend: openjpeg
+    jp2_rate: 48
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.246073
+
+  - name: jp2_r64_preedit_cond_learned
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: learned
+    jp2_backend: openjpeg
+    jp2_rate: 64
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.329843
+
+  - name: jp2_r96_preedit_cond_learned
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: learned
+    jp2_backend: openjpeg
+    jp2_rate: 96
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.497382
+
+  - name: jp2_r128_preedit_cond_learned
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: learned
+    jp2_backend: openjpeg
+    jp2_rate: 128
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.664921
+
+  - name: jp2_r192_preedit_cond_learned
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: learned
+    jp2_backend: openjpeg
+    jp2_rate: 192
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 1.000000
+
+  # -------------------------------------------------------------------
+  # JPEG2000 actual codec, pre-editor conditioned as intra_smooth
+  # -------------------------------------------------------------------
+  - name: jp2_r32_preedit_cond_intra_smooth
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: intra_smooth
+    jp2_backend: openjpeg
+    jp2_rate: 32
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.162304
+
+  - name: jp2_r48_preedit_cond_intra_smooth
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: intra_smooth
+    jp2_backend: openjpeg
+    jp2_rate: 48
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.246073
+
+  - name: jp2_r64_preedit_cond_intra_smooth
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: intra_smooth
+    jp2_backend: openjpeg
+    jp2_rate: 64
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.329843
+
+  - name: jp2_r96_preedit_cond_intra_smooth
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: intra_smooth
+    jp2_backend: openjpeg
+    jp2_rate: 96
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.497382
+
+  - name: jp2_r128_preedit_cond_intra_smooth
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: intra_smooth
+    jp2_backend: openjpeg
+    jp2_rate: 128
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 0.664921
+
+  - name: jp2_r192_preedit_cond_intra_smooth
+    <<: *preedit_common
+    mode: attention_preedit_jpeg2000
+    codec_family: intra_smooth
+    jp2_backend: openjpeg
+    jp2_rate: 192
+    jp2_rate_min: 1
+    jp2_rate_max: 192
+    condition:
+      severity: 1.000000
