@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
 
-from utils import load_json, xywh_to_xyxy
+from .utils import load_json, xywh_to_xyxy
 
 
 @dataclass

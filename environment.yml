@@ -1,4 +1,4 @@
-name: d2_preeditor
+name: d2_scope
 channels:
   - nvidia/label/cuda-12.1.0
   - conda-forge

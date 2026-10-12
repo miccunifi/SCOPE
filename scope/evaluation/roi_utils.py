@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from utils import box_area_xyxy, iou_xyxy
+from .utils import box_area_xyxy, iou_xyxy
 
 
 def intersection_over_smaller(a: List[float], b: List[float]) -> float:

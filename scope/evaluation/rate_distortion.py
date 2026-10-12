@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -124,15 +123,15 @@ def load_summary_near_predictions(pred_path: Path) -> Dict[str, Any]:
     return {}
 
 
-def infer_curve_type(pred_path: Path, preedit_prefix: str = "preedit_") -> Tuple[str, str]:
+def infer_curve_type(pred_path: Path, scope_prefix: str = "scope_") -> Tuple[str, str]:
     """
     Example:
       .../jpeg_q10/predictions_coco.json         -> baseline, jpeg_q10
-      .../preedit_jpeg_q10/predictions_coco.json -> preedit,  jpeg_q10
+      .../scope_jpeg_q10/predictions_coco.json -> scope,  jpeg_q10
     """
     name = pred_path.parent.name
-    if name.startswith(preedit_prefix):
-        return "preedit", name[len(preedit_prefix):]
+    if name.startswith(scope_prefix):
+        return "scope", name[len(scope_prefix):]
     return "baseline", name
 
 
@@ -201,11 +200,11 @@ def infer_raw_level_from_filename(pred_path: Path, base_name: str, codec: str) -
 
     Expected examples:
       jpeg_q10              -> raw_level=10, jpeg_quality
-      preedit_jpeg_q10      -> raw_level=10, jpeg_quality
+      scope_jpeg_q10      -> raw_level=10, jpeg_quality
       bpg_qp44              -> raw_level=44, bpg_qp
-      preedit_bpg_qp44      -> raw_level=44, bpg_qp
+      scope_bpg_qp44      -> raw_level=44, bpg_qp
       bmshj_q3              -> raw_level=3, compressai_quality
-      preedit_bmshj_q3      -> raw_level=3, compressai_quality
+      scope_bmshj_q3      -> raw_level=3, compressai_quality
     """
     text = norm(
         " ".join(
@@ -511,10 +510,10 @@ def find_prediction_files(inputs: List[Tuple[Optional[str], Path]], filename: st
     return unique
 
 
-def build_prediction_metadata(item: Dict[str, Any], preedit_prefix: str) -> Dict[str, Any]:
+def build_prediction_metadata(item: Dict[str, Any], scope_prefix: str) -> Dict[str, Any]:
     pred_path = Path(item["predictions_path"])
     summary = load_summary_near_predictions(pred_path)
-    curve_type, base_name = infer_curve_type(pred_path, preedit_prefix=preedit_prefix)
+    curve_type, base_name = infer_curve_type(pred_path, scope_prefix=scope_prefix)
     codec = infer_codec(pred_path, summary, base_name)
 
     raw_level, raw_level_name, raw_level_source = infer_raw_level(
@@ -951,9 +950,9 @@ def main() -> None:
         help="Optional codecs to exclude, e.g. cheng jpeg2000 unknown.",
     )
     parser.add_argument(
-        "--preedit-prefix",
-        default="preedit_",
-        help="Prefix used to identify SCOPE/pre-edited folders.",
+        "--scope-prefix",
+        default="scope_",
+        help="Prefix used to identify SCOPE/SCOPEed folders.",
     )
     parser.add_argument(
         "--no-overall",
@@ -984,7 +983,7 @@ def main() -> None:
     print(f"Found {len(pred_items)} prediction files before filtering.")
 
     metadata_items = [
-        build_prediction_metadata(x, preedit_prefix=args.preedit_prefix)
+        build_prediction_metadata(x, scope_prefix=args.scope_prefix)
         for x in pred_items
     ]
 

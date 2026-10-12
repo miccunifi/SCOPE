@@ -5,7 +5,7 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 
-from utils import box_area_xyxy
+from .utils import box_area_xyxy
 
 
 Tile = Tuple[int, int, int, int]

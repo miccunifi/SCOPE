@@ -1,12 +1,17 @@
+# Data and model assets
 datasets/
 models/
 checkpoints/
 runs/
-outputs/
+outputs*/
 plots/
 selected_box_visualizations_bpp/
-*.csv
-plot*.py
+
+# Generated files
 __pycache__/
 *.py[cod]
-*.pyo
+*.csv
+.pytest_cache/
+.env
+.venv/
+old*

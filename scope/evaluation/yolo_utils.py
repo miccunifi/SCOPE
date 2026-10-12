@@ -6,7 +6,7 @@ from typing import Dict, List
 import numpy as np
 from ultralytics import YOLO
 
-from utils import iou_xyxy, xyxy_to_xywh
+from .utils import iou_xyxy, xyxy_to_xywh
 
 
 class YoloPredictor:

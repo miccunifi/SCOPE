@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Tuple
 
@@ -15,32 +13,17 @@ from tqdm import tqdm
 import torch
 import torchvision.transforms.functional as TF
 
-# Make the script work both from repo root and from PreprocessingICM/.
-_THIS_DIR = Path(__file__).resolve().parent
-for _p in [_THIS_DIR, _THIS_DIR.parent, Path.cwd(), Path.cwd().parent]:
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
 
-from coco_eval import evaluate_coco_map
-from dataset_coco import CocoDataset
-from utils import ensure_dir, save_json
+from .categories import COCO80_TO_COCO91, VALID_COCO91_IDS
+from .coco_metrics import evaluate_coco_map
+from .dataset import CocoDataset
+from .utils import ensure_dir, save_json
 
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 
 # COCO80 contiguous class ids -> official COCO category ids used by COCO JSON.
 # Use this for detectors that output contiguous ids 0..79: YOLO, Detectron2, MMDet.
-COCO80_TO_COCO91 = [
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    11, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-    22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-    35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
-    46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
-    56, 57, 58, 59, 60, 61, 62, 63, 64, 65,
-    67, 70, 72, 73, 74, 75, 76, 77, 78, 79,
-    80, 81, 82, 84, 85, 86, 87, 88, 89, 90,
-]
-VALID_COCO91_IDS = set(COCO80_TO_COCO91)
 
 
 class DetectorProtocol(Protocol):
@@ -91,9 +74,7 @@ def remap_category_id(raw_label: int, label_space: str, category_id_offset: int)
     raise ValueError(f"Unknown label_space={label_space!r}")
 
 
-# -----------------------------------------------------------------------------
 # TorchVision detector wrapper
-# -----------------------------------------------------------------------------
 
 class TorchvisionCocoDetector:
     """
@@ -257,9 +238,7 @@ class TorchvisionCocoDetector:
         return preds
 
 
-# -----------------------------------------------------------------------------
 # Detectron2 detector wrapper, including Faster R-CNN ResNeXt-101-FPN
-# -----------------------------------------------------------------------------
 
 DETECTRON2_PRESETS = {
     # Faster R-CNN with ResNeXt-101-32x8d + FPN, COCO pretrained.
@@ -401,9 +380,7 @@ class Detectron2CocoDetector:
         return preds
 
 
-# -----------------------------------------------------------------------------
 # Dataset/reconstructed-folder utilities
-# -----------------------------------------------------------------------------
 
 def discover_experiment_dirs(source_eval_dir: Path, experiments: Optional[List[str]] = None) -> List[Path]:
     if experiments:
@@ -527,9 +504,7 @@ def get_num_pixels(record, fallback_image_path: Path, bandwidth_row: Optional[Di
     return int(w), int(h), int(w) * int(h)
 
 
-# -----------------------------------------------------------------------------
 # Evaluation loop
-# -----------------------------------------------------------------------------
 
 def run_single_saved_experiment(
     exp_dir: Path,

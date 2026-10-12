@@ -1,23 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Scratch training WITHOUT JPEG2000/wavelet family.
-# Clean/unbiased setup:
-#   - families are sampled uniformly: diff_jpeg, bmshj, bpg_like
-#   - severity is a linear normalized scalar in [0,1]
-#   - severity is sampled uniformly from a global linear grid
-#   - no severity-dependent loss reweighting
-#   - BPG uses the medium HEVC-like proxy: safer than strong, better than old blur/block
-#
-# Cheng remains an unseen learned-codec transfer test at evaluation time.
-
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export PYTHONUNBUFFERED=1
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/sdani/bandwidth_roi_detectionv2}"
-SCRIPT_DIR="${SCRIPT_DIR:-${PROJECT_ROOT}/standalone_conditional_preeditor}"
-
-TRAIN_SCRIPT="${TRAIN_SCRIPT:-${SCRIPT_DIR}/train_preedit_attention_conditional_bgreplace_d2fpn_realjpeg_realbmshj_q8_nojp2_unbiased_mediumbpg_sevbasis.py}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+TRAIN_MODULE="${TRAIN_MODULE:-scope.train_scope}"
 
 TRAIN_IMAGES="${TRAIN_IMAGES:-${PROJECT_ROOT}/datasets/coco-2017/train/data}"
 TRAIN_JSON="${TRAIN_JSON:-${PROJECT_ROOT}/datasets/coco-2017/train/labels.json}"
@@ -25,15 +14,12 @@ TRAIN_JSON="${TRAIN_JSON:-${PROJECT_ROOT}/datasets/coco-2017/train/labels.json}"
 VAL_IMAGES="${VAL_IMAGES:-${PROJECT_ROOT}/datasets/coco-2017/validation/data}"
 VAL_JSON="${VAL_JSON:-${PROJECT_ROOT}/datasets/coco-2017/validation/labels.json}"
 
-RUN_NAME="${RUN_NAME:-preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_$(date +%Y%m%d_%H%M%S)}"
+RUN_NAME="${RUN_NAME:-scope_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${OUT_DIR:-${PROJECT_ROOT}/runs/${RUN_NAME}}"
 
-# Detectron2 paper-like detector for COCO Det.
 D2_CONFIG="${D2_CONFIG:-COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml}"
 D2_WEIGHTS="${D2_WEIGHTS:-}"
 
-# Linear severity grid: every level has equal probability.
-# Expected average severity is ~0.5.
 SEVERITY_LEVELS="${SEVERITY_LEVELS:-0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0}"
 VAL_SEVERITY_LEVELS="${VAL_SEVERITY_LEVELS:-0.0,0.2,0.4,0.6,0.8,1.0}"
 
@@ -42,15 +28,13 @@ BPG_PROXY_MODE="${BPG_PROXY_MODE:-medium}"
 BATCH="${BATCH:-8}"
 LR="${LR:-1e-4}"
 
-# Keep all severity-dependent dynamic weights disabled for an unbiased severity test.
 TASK_SEVERITY_GAIN="${TASK_SEVERITY_GAIN:-0.0}"
 RATE_SEVERITY_DROP="${RATE_SEVERITY_DROP:-0.0}"
 BG_SEVERITY_DROP="${BG_SEVERITY_DROP:-0.0}"
 
-
 echo "Project root:       ${PROJECT_ROOT}"
 echo "Script dir:         ${SCRIPT_DIR}"
-echo "Train script:       ${TRAIN_SCRIPT}"
+echo "Train module:       ${TRAIN_MODULE}"
 echo "Train images:       ${TRAIN_IMAGES}"
 echo "Train JSON:         ${TRAIN_JSON}"
 echo "Val images:         ${VAL_IMAGES}"
@@ -70,7 +54,7 @@ echo "BPG proxy mode:     ${BPG_PROXY_MODE}"
 echo "Severity condition: scalar severity, internal basis [s,s^2,s^3,hi50,hi75,hi90]"
 echo "Batch / LR:         ${BATCH} / ${LR}"
 
-test -f "${TRAIN_SCRIPT}" || { echo "ERROR: missing TRAIN_SCRIPT: ${TRAIN_SCRIPT}"; exit 1; }
+test -f "${PROJECT_ROOT}/scope/train_scope.py" || { echo "ERROR: missing training module"; exit 1; }
 test -d "${TRAIN_IMAGES}" || { echo "ERROR: missing TRAIN_IMAGES: ${TRAIN_IMAGES}"; exit 1; }
 test -f "${TRAIN_JSON}" || { echo "ERROR: missing TRAIN_JSON: ${TRAIN_JSON}"; exit 1; }
 test -d "${VAL_IMAGES}" || { echo "ERROR: missing VAL_IMAGES: ${VAL_IMAGES}"; exit 1; }
@@ -83,7 +67,8 @@ if [[ -n "${D2_WEIGHTS}" ]]; then
   EXTRA_ARGS+=(--detectron2-weights "${D2_WEIGHTS}")
 fi
 
-python "${TRAIN_SCRIPT}" \
+cd "${PROJECT_ROOT}"
+python -m "${TRAIN_MODULE}" \
   --images-dir "${TRAIN_IMAGES}" \
   --annotations-json "${TRAIN_JSON}" \
   --val-images-dir "${VAL_IMAGES}" \

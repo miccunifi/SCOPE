@@ -1,30 +1,19 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
-# Make the script work both from the repo root and from PreprocessingICM/.
-_THIS_DIR = Path(__file__).resolve().parent
-for _p in [
-    _THIS_DIR,
-    _THIS_DIR.parent,
-    Path.cwd(),
-    Path.cwd().parent,
-]:
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
 
-from coco_eval import evaluate_coco_map
-from dataset_coco import CocoDataset
-from rtdetr_utils import RTDetrPredictor as YoloPredictor, remove_internal_xyxy
-from utils import ensure_dir, save_json
+from .categories import YOLO80_TO_COCO91
+from .coco_metrics import evaluate_coco_map
+from .dataset import CocoDataset
+from .rtdetr_utils import RTDetrPredictor as YoloPredictor, remove_internal_xyxy
+from .utils import ensure_dir, save_json
 
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
@@ -32,16 +21,6 @@ IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 
 # Ultralytics COCO models output contiguous COCO80 class ids: 0..79.
 # Official COCO annotations use category ids 1..90 with gaps.
-YOLO80_TO_COCO91 = [
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    11, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-    22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-    35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
-    46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
-    56, 57, 58, 59, 60, 61, 62, 63, 64, 65,
-    67, 70, 72, 73, 74, 75, 76, 77, 78, 79,
-    80, 81, 82, 84, 85, 86, 87, 88, 89, 90,
-]
 
 
 def _remap_predictions_for_eval(preds: List[Dict], category_map: str) -> List[Dict]:

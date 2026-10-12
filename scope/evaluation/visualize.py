@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -360,10 +359,10 @@ def parse_args():
     p.add_argument("--output-dir", type=str, required=True)
 
     p.add_argument("--baseline-experiment", type=str, required=True)
-    p.add_argument("--preedit-experiment", type=str, required=True)
+    p.add_argument("--scope-experiment", type=str, required=True)
 
     p.add_argument("--baseline-name", type=str, default="Baseline")
-    p.add_argument("--preedit-name", type=str, default="SCOPE")
+    p.add_argument("--scope-name", type=str, default="SCOPE")
 
     p.add_argument("--image-ids", type=str, required=True)
 
@@ -419,18 +418,18 @@ def main():
     output_dir = ensure_dir(Path(args.output_dir))
 
     baseline_dir = source_eval_dir / args.baseline_experiment
-    preedit_dir = source_eval_dir / args.preedit_experiment
+    scope_dir = source_eval_dir / args.scope_experiment
 
     baseline_recon_dir = baseline_dir / "reconstructed"
-    preedit_recon_dir = preedit_dir / "reconstructed"
+    scope_recon_dir = scope_dir / "reconstructed"
 
     if not baseline_recon_dir.is_dir():
         raise FileNotFoundError(f"Missing reconstructed/ directory: {baseline_recon_dir}")
-    if not preedit_recon_dir.is_dir():
-        raise FileNotFoundError(f"Missing reconstructed/ directory: {preedit_recon_dir}")
+    if not scope_recon_dir.is_dir():
+        raise FileNotFoundError(f"Missing reconstructed/ directory: {scope_recon_dir}")
 
     baseline_by_id, baseline_by_stem = load_bandwidth_csv(baseline_dir)
-    preedit_by_id, preedit_by_stem = load_bandwidth_csv(preedit_dir)
+    scope_by_id, scope_by_stem = load_bandwidth_csv(scope_dir)
 
     images_by_id = load_coco_images_by_id(Path(args.annotations_json))
     selected_ids = [int(x.strip()) for x in args.image_ids.split(",") if x.strip()]
@@ -459,7 +458,7 @@ def main():
         stem = Path(file_name).stem
 
         baseline_path = find_reconstructed_image(baseline_recon_dir, file_name)
-        preedit_path = find_reconstructed_image(preedit_recon_dir, file_name)
+        scope_path = find_reconstructed_image(scope_recon_dir, file_name)
 
         baseline_bpp = get_bpp_for_image(
             image_id=image_id,
@@ -467,36 +466,36 @@ def main():
             by_id=baseline_by_id,
             by_stem=baseline_by_stem,
         )
-        preedit_bpp = get_bpp_for_image(
+        scope_bpp = get_bpp_for_image(
             image_id=image_id,
             file_name=file_name,
-            by_id=preedit_by_id,
-            by_stem=preedit_by_stem,
+            by_id=scope_by_id,
+            by_stem=scope_by_stem,
         )
 
         baseline_img = cv2.imread(str(baseline_path), cv2.IMREAD_COLOR)
-        preedit_img = cv2.imread(str(preedit_path), cv2.IMREAD_COLOR)
+        scope_img = cv2.imread(str(scope_path), cv2.IMREAD_COLOR)
 
         if baseline_img is None:
             raise RuntimeError(f"Could not read baseline image: {baseline_path}")
-        if preedit_img is None:
-            raise RuntimeError(f"Could not read preedit image: {preedit_path}")
+        if scope_img is None:
+            raise RuntimeError(f"Could not read scope image: {scope_path}")
 
         target_hw = baseline_img.shape[:2]
-        preedit_img = resize_to_match(preedit_img, target_hw)
+        scope_img = resize_to_match(scope_img, target_hw)
 
         baseline_bpp_str = "NA" if baseline_bpp is None else f"{baseline_bpp:.6f}"
-        preedit_bpp_str = "NA" if preedit_bpp is None else f"{preedit_bpp:.6f}"
+        scope_bpp_str = "NA" if scope_bpp is None else f"{scope_bpp:.6f}"
 
         baseline_caption = (
             f"{args.baseline_name} | bpp: N/A"
             if baseline_bpp is None
             else f"{args.baseline_name} | bpp: {baseline_bpp:.4f}"
         )
-        preedit_caption = (
-            f"{args.preedit_name} | bpp: N/A"
-            if preedit_bpp is None
-            else f"{args.preedit_name} | bpp: {preedit_bpp:.4f}"
+        scope_caption = (
+            f"{args.scope_name} | bpp: N/A"
+            if scope_bpp is None
+            else f"{args.scope_name} | bpp: {scope_bpp:.4f}"
         )
 
         baseline_no_boxes = add_bottom_padding_caption(
@@ -527,16 +526,16 @@ def main():
             thickness=args.caption_text_thickness,
         )
 
-        preedit_no_boxes = add_bottom_padding_caption(
-            preedit_img,
-            text=preedit_caption,
+        scope_no_boxes = add_bottom_padding_caption(
+            scope_img,
+            text=scope_caption,
             pad_h=args.caption_pad_px,
             font_scale=args.caption_font_scale,
             thickness=args.caption_text_thickness,
         )
 
-        preedit_boxes_img, preedit_n_pred = draw_predictions_same_color(
-            image_bgr=preedit_img,
+        scope_boxes_img, scope_n_pred = draw_predictions_same_color(
+            image_bgr=scope_img,
             predictor=predictor,
             box_color=box_color,
             box_thickness=args.box_thickness,
@@ -547,8 +546,8 @@ def main():
             show_scores=not args.hide_scores,
         )
 
-        preedit_with_boxes = add_bottom_padding_caption(
-            preedit_boxes_img,
+        scope_with_boxes = add_bottom_padding_caption(
+            scope_boxes_img,
             text="",
             pad_h=args.caption_pad_px,
             font_scale=args.caption_font_scale,
@@ -559,8 +558,8 @@ def main():
             [
                 baseline_no_boxes,
                 baseline_with_boxes,
-                preedit_no_boxes,
-                preedit_with_boxes,
+                scope_no_boxes,
+                scope_with_boxes,
             ],
             gap_px=args.panel_gap_px,
         )
@@ -568,7 +567,7 @@ def main():
         out_name = (
             f"{image_id:012d}_{stem}_comparison_row_"
             f"{safe_name(args.baseline_name)}_bpp_{baseline_bpp_str}_"
-            f"vs_{safe_name(args.preedit_name)}_bpp_{preedit_bpp_str}.png"
+            f"vs_{safe_name(args.scope_name)}_bpp_{scope_bpp_str}.png"
         )
         out_name = safe_name(out_name)
         out_path = output_dir / out_name
@@ -582,7 +581,7 @@ def main():
         print(
             f"image_id={image_id} | "
             f"{args.baseline_name} bpp={baseline_bpp_str}, preds={baseline_n_pred} | "
-            f"{args.preedit_name} bpp={preedit_bpp_str}, preds={preedit_n_pred} | "
+            f"{args.scope_name} bpp={scope_bpp_str}, preds={scope_n_pred} | "
             f"{out_path}"
         )
 
@@ -591,13 +590,13 @@ def main():
                 "image_id": image_id,
                 "file_name": file_name,
                 "baseline_experiment": args.baseline_experiment,
-                "preedit_experiment": args.preedit_experiment,
+                "scope_experiment": args.scope_experiment,
                 "baseline_bpp": baseline_bpp_str,
-                "preedit_bpp": preedit_bpp_str,
+                "scope_bpp": scope_bpp_str,
                 "baseline_num_predictions": baseline_n_pred,
-                "preedit_num_predictions": preedit_n_pred,
+                "scope_num_predictions": scope_n_pred,
                 "baseline_reconstructed_path": str(baseline_path),
-                "preedit_reconstructed_path": str(preedit_path),
+                "scope_reconstructed_path": str(scope_path),
                 "output_path": str(out_path),
             }
         )
@@ -608,13 +607,13 @@ def main():
             "image_id",
             "file_name",
             "baseline_experiment",
-            "preedit_experiment",
+            "scope_experiment",
             "baseline_bpp",
-            "preedit_bpp",
+            "scope_bpp",
             "baseline_num_predictions",
-            "preedit_num_predictions",
+            "scope_num_predictions",
             "baseline_reconstructed_path",
-            "preedit_reconstructed_path",
+            "scope_reconstructed_path",
             "output_path",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)

@@ -7,17 +7,17 @@ import cv2
 import numpy as np
 import torch
 
-from roi_codec_model import ROICompressionAE
-from roi_utils import merge_boxes_by_intersection, roi_quality_by_scale
-from tile_utils import Tile
-from utils import (
+from .roi_codec_model import ROICompressionAE
+from .roi_utils import merge_boxes_by_intersection, roi_quality_by_scale
+from .tile_utils import Tile
+from .utils import (
     box_area_xyxy,
     expand_box_xyxy,
     jpeg_encode_bytes,
     jpeg_encode_decode,
 )
 
-from preedit_inference import apply_preedit_bgr
+from scope.inference import apply_scope_bgr
 
 
 @dataclass
@@ -520,66 +520,34 @@ def learned_roi_codec_transmission(
         chosen_quality=bg_quality,
     )
 
-def preedit_jpeg_transmission(
-    img_bgr,
-    preedit_ckpt: str,
+def scope_jpeg_transmission(
+    img_bgr: np.ndarray,
+    scope_ckpt: str,
     jpeg_quality: int,
+    *,
     device=None,
-    base_ch: int = 32,
-    max_delta: float = 0.05,
-    tile_size: int = 512,
-):
-    edited = apply_preedit_bgr(
-        img_bgr=img_bgr,
-        ckpt_path=preedit_ckpt,
-        device=device,
-        base_ch=base_ch,
-        max_delta=max_delta,
-        tile_size=tile_size,
-    )
-
-    reconstructed, nbytes = jpeg_encode_decode(
-        edited,
-        jpeg_quality,
-    )
-
-    return TransmissionResult(
-        reconstructed_bgr=reconstructed,
-        estimated_bytes=nbytes,
-        num_rois=0,
-        chosen_quality=jpeg_quality,
-    )
+    codec_family: str = "diff_jpeg",
+    scope_config: dict | None = None,
+) -> TransmissionResult:
+    severity = 1.0 - (int(jpeg_quality) - 1) / 98.0
+    edited = apply_scope_bgr(img_bgr, scope_ckpt, codec_family, severity, device, scope_config)
+    reconstructed, nbytes = jpeg_encode_decode(edited, jpeg_quality)
+    return TransmissionResult(reconstructed, nbytes, 0, jpeg_quality)
 
 
-def preedit_compressai_transmission(
-    img_bgr,
-    preedit_ckpt: str,
+def scope_compressai_transmission(
+    img_bgr: np.ndarray,
+    scope_ckpt: str,
     compressai_model: str,
     compressai_quality: int,
+    *,
+    severity: float,
     device=None,
-    base_ch: int = 32,
-    max_delta: float = 0.05,
-    tile_size: int = 512,
-):
-    edited = apply_preedit_bgr(
-        img_bgr=img_bgr,
-        ckpt_path=preedit_ckpt,
-        device=device,
-        base_ch=base_ch,
-        max_delta=max_delta,
-        tile_size=tile_size,
-    )
-
+    codec_family: str = "bmshj",
+    scope_config: dict | None = None,
+) -> TransmissionResult:
+    edited = apply_scope_bgr(img_bgr, scope_ckpt, codec_family, severity, device, scope_config)
     result = compressai_transmission(
-        img_bgr=edited,
-        model_name=compressai_model,
-        quality=compressai_quality,
-        device=device,
+        img_bgr=edited, model_name=compressai_model, quality=compressai_quality, device=device
     )
-
-    return TransmissionResult(
-        reconstructed_bgr=result.reconstructed_bgr,
-        estimated_bytes=result.estimated_bytes,
-        num_rois=0,
-        chosen_quality=compressai_quality,
-    )
+    return TransmissionResult(result.reconstructed_bgr, result.estimated_bytes, 0, compressai_quality)

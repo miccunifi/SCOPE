@@ -1,0 +1,116 @@
+output_dir: outputs_scopeing_time
+device: cuda
+category_id_offset: 0
+dataset:
+  images_dir: datasets/coco-2017/validation/data
+  annotations_json: datasets/coco-2017/validation/labels.json
+
+models:
+  server_model: models/yolo26x.pt
+
+server_predict:
+  conf: 0.001
+  iou: 0.7
+  max_det: 300
+  category_map: coco91
+
+bpg_encoder_bin: bpgenc
+bpg_decoder_bin: bpgdec
+jp2_encoder_bin: opj_compress
+jp2_decoder_bin: opj_decompress
+
+scope_common: &scope_common
+  scope_ckpt: runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_NOOBJECTNESS_20260701_140557/best_val.pt
+  architecture: scope_bgreplace
+  condition_mode: family_severity
+  base_ch: 48
+  family_emb_dim: 8
+  cond_dim: 64
+  max_delta_obj: 0.09
+  max_delta_bg: 0.03
+  attention_bias: -4.0
+  bg_mode: blur_replace
+  bg_blur_kernel: 51
+  bg_lowres_scale: 16
+
+codec_templates:
+  time_diffjpeg: &time_diffjpeg
+    <<: *scope_common
+    mode: scope_jpeg
+    codec_family: block_dct
+
+  time_bpglike: &time_bpglike
+    <<: *scope_common
+    mode: scope_bpg
+    codec_family: intra_smooth
+
+  time_bmshj: &time_bmshj
+    <<: *scope_common
+    mode: scope_compressai
+    codec_family: learned
+    compressai_model: bmshj2018-hyperprior
+    compressai_quality: 1
+
+experiments:
+  # Differentiable JPEG
+  - name: time_diffjpeg_s000
+    <<: *time_diffjpeg
+    condition: {severity: 0.000000}
+
+  - name: time_diffjpeg_s025
+    <<: *time_diffjpeg
+    condition: {severity: 0.250000}
+
+  - name: time_diffjpeg_s050
+    <<: *time_diffjpeg
+    condition: {severity: 0.500000}
+
+  - name: time_diffjpeg_s075
+    <<: *time_diffjpeg
+    condition: {severity: 0.750000}
+
+  - name: time_diffjpeg_s100
+    <<: *time_diffjpeg
+    condition: {severity: 1.000000}
+
+  # BPG-like proxy
+  - name: time_bpglike_s000
+    <<: *time_bpglike
+    condition: {severity: 0.000000}
+
+  - name: time_bpglike_s025
+    <<: *time_bpglike
+    condition: {severity: 0.250000}
+
+  - name: time_bpglike_s050
+    <<: *time_bpglike
+    condition: {severity: 0.500000}
+
+  - name: time_bpglike_s075
+    <<: *time_bpglike
+    condition: {severity: 0.750000}
+
+  - name: time_bpglike_s100
+    <<: *time_bpglike
+    condition: {severity: 1.000000}
+
+  # BMSHJ
+  - name: time_bmshj_s000
+    <<: *time_bmshj
+    condition: {severity: 0.000000}
+
+  - name: time_bmshj_s025
+    <<: *time_bmshj
+    condition: {severity: 0.250000}
+
+  - name: time_bmshj_s050
+    <<: *time_bmshj
+    condition: {severity: 0.500000}
+
+  - name: time_bmshj_s075
+    <<: *time_bmshj
+    condition: {severity: 0.750000}
+
+  - name: time_bmshj_s100
+    <<: *time_bmshj
+    condition: {severity: 1.000000}
