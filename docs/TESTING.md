@@ -1,182 +1,172 @@
-# 🔎 SCOPE: Manual validation and reproducibility
+# ✅ Reproducing and Verifying SCOPE Results
 
-This document describes checks that can be run **without** the former `tests/` and `tools/` directories. The released layout does **not** contain `tools.run_full_tests`, `tools.validate_environment`, an automated test suite, or an exhaustive import/function-call auditor.
+This guide provides a practical route from a **fresh SCOPE checkout** to evaluated codec curves and BDBR tables. You can either **train from scratch** or use the released **pretrained SCOPE checkpoint**. Commands are run from the repository root.
 
-These are practical checks for the training and evaluation pipeline; they are **not a substitute for a real end-to-end run** using the intended model weights and data.
+## ✅ Automated source and integration tests
 
-All commands assume the **SCOPE repository root** is the working directory.
-
-## ✅ 1. Check code and shell syntax
+The repository includes automated checks, without requiring a downloaded COCO dataset or released model weights for the default test suite. Tests exercise actual SCOPE forward/backward passes on synthetic images, codec subprocess interfaces with fake executables, evaluation outputs, timing, BDBR interpolation and table generation, and the public training shell command.
 
 ```bash
-# Compile all package Python files without running models
-python -m compileall -q scope
+# Synthetic tests and static import/call-signature audit
+python tools/run_full_tests.py
 
-# Check the training launcher's Bash syntax
-bash -n scope/train_scope.sh
+# Compile paths and check the organized source layout
+python tools/validate_environment.py --mode static --show-ok
 ```
 
-Both should finish without errors. Compilation checks Python syntax only: it **cannot** guarantee that imported functions exist or that numerical operations work.
-
-Check package entry points after installing the runtime dependencies:
+When the research environment is installed (COCO, SCOPE checkpoints, detector weights and real codec executables), run **strict** checking:
 
 ```bash
-python -m scope.train_scope --help
-python -m scope.evaluation.evaluate --help
-python -m scope.evaluation.timing --help
-python -m scope.evaluation.ablation_bdbr --help
-python -m scope.evaluation.saved_rtdetr --help
-python -m scope.evaluation.saved_multi_detector --help
+python tools/run_full_tests.py \
+  --imports --entrypoints --checkpoints --environment \
+  --check-images -1 --strict-external
 ```
 
-A `--help` failure may reflect a missing external package during module import; it does not necessarily mean the command-line arguments are incorrect.
+Strict checks validate module imports, direct CLI paths, each selected model's checkpoint conditioning family, COCO image paths, binary availability and packages. They intentionally fail if required assets/dependencies are missing. Passing these checks is not a substitute for running the full 5,000-image evaluation and comparing the numerical outputs.
 
-## 📁 2. Check input paths and executables
-
-The defaults in `scope/train_scope.sh` and values in `configs/*.yaml` refer to external assets that are not distributed with the repository.
+## 📦 1. Prepare your environment
 
 ```bash
-# COCO inputs
-ls datasets/coco-2017/train/labels.json
-ls datasets/coco-2017/validation/labels.json
-ls datasets/coco-2017/train/data | head
-ls datasets/coco-2017/validation/data | head
-
-# Default evaluation detector
-ls models/yolo26x.pt
-
-# External codecs used by BPG and JPEG2000
-command -v bpgenc
-command -v bpgdec
-command -v opj_compress
-command -v opj_decompress
+git clone https://github.com/SilviaDani/SCOPE.git
+cd SCOPE
+pip install -r requirements.txt
+python training/train_scope.py --help
+python evaluation/evaluate_yolo26x_codecs.py --help
+python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py --help
 ```
 
-If a path differs, update the relevant YAML value or the training environment variable. A missing codec executable only prevents experiments that depend on that codec. The training teacher's Detectron2 model-zoo config name is not necessarily a local file path.
-
-For the configured SCOPE checkpoint, inspect `scope_common.scope_ckpt` in the YAML. The old `runs/preedit_*/best_val.pt` naming is valid; what matters is that the **actual file exists and is compatible with the model**. Avoid renaming a checkpoint to make its path look more consistent.
-
-## 🧩 3. Validate active YAML experiments
-
-The following standalone Python snippet uses the already-required PyYAML dependency. It verifies that the configuration files parse, active experiment names are unique, required experiment keys exist, and explicitly supplied severity values are in range.
+For the original training setup, install a Detectron2 version compatible with your installed PyTorch/CUDA and the differentiable JPEG backend. Check external codec tools when using BPG and JPEG2000:
 
 ```bash
-python - <<'PY'
-from pathlib import Path
-import yaml
-
-for filename in ('eval.yaml', 'ablation.yaml', 'timing.yaml'):
-    path = Path('configs') / filename
-    with path.open() as handle:
-        config = yaml.safe_load(handle)
-
-    experiments = config.get('experiments', [])
-    names = [item.get('name') for item in experiments]
-    assert all(names), f'{filename}: missing experiment name'
-    assert len(names) == len(set(names)), f'{filename}: duplicate experiment name'
-
-    for experiment in experiments:
-        assert experiment.get('mode'), f'{filename}/{experiment["name"]}: missing mode'
-        condition = experiment.get('condition') or {}
-        if 'severity' in condition:
-            severity = float(condition['severity'])
-            assert 0 <= severity <= 1, (
-                f'{filename}/{experiment["name"]}: severity {severity} outside [0,1]'
-            )
-
-    print(f'[OK] {filename}: {len(experiments)} active experiments')
-PY
+command -v bpgenc && command -v bpgdec
+command -v opj_compress && command -v opj_decompress
 ```
 
-**Do not enforce an old experiment count such as 58.** The active count can change when previously commented-out JPEG2000 blocks are disabled or enabled; commented YAML text does not run.
+The repo includes `environment.yml` as an alternative environment specification.
 
-## 🌍 4. Verify the JPEG2000 conditioning contract
+## 🗂️ 2. Set up COCO and the detectors
 
-The published SCOPE checkpoint was trained with `diff_jpeg`, `bmshj`, and `bpg_like` only. It does **not** contain a JPEG2000 (`jp2_like`) family embedding.
+Get [COCO 2017](https://cocodataset.org/#download) images and instance annotations. The default launchers/configs refer to:
 
-Your intended configuration split is:
-
-- `configs/eval.yaml`: direct JPEG2000 baselines; unsupported wavelet-conditioned SCOPE experiments disabled.
-- `configs/ablation.yaml`: actual JPEG2000 compression with **seen-family conditions** `block_dct`, `learned`, `intra_smooth`.
-
-You can review the active configuration entries with:
-
-```bash
-python - <<'PY'
-from pathlib import Path
-import yaml
-
-for filename in ('eval.yaml', 'ablation.yaml'):
-    config = yaml.safe_load((Path('configs') / filename).read_text())
-    print('\n', filename)
-    for exp in config['experiments']:
-        name = str(exp.get('name', '')).lower()
-        mode = str(exp.get('mode', '')).lower()
-        if 'jp2' in name or 'jpeg2000' in mode:
-            print(exp['name'], mode, exp.get('codec_family'))
-            if filename == 'ablation.yaml' and mode.startswith('scope_'):
-                assert exp.get('codec_family') in {
-                    'block_dct', 'learned', 'intra_smooth',
-                }, f'Unsupported JPEG2000 SCOPE family in {exp["name"]}'
-            if filename == 'eval.yaml' and mode.startswith('scope_'):
-                raise AssertionError(
-                    f'Unexpected SCOPE JPEG2000 experiment in main eval: {exp["name"]}'
-                )
-PY
+```text
+datasets/coco-2017/train/data/
+datasets/coco-2017/train/labels.json
+datasets/coco-2017/validation/data/
+datasets/coco-2017/validation/labels.json
+models/yolo26x.pt
 ```
 
-This checks the **configuration**; it cannot prove that the checkpoint contents match. A real inference load is still necessary. Only load weights from a trusted source.
+If your data uses standard COCO directories such as `train2017` and `val2017`, point the training environment variables and YAML `dataset` fields to those locations. The label files must be **COCO-format instance annotation JSONs**.
 
-## 🧠 5. Check the training configuration
+For the detector-transfer experiments, use the model weights corresponding to the intended Faster R-CNN, RT-DETR-l, and YOLO26x architectures.
 
-```bash
-bash -n scope/train_scope.sh
-python -m scope.train_scope --help
+## 🧠 3. Obtain or train SCOPE weights
+
+**Option A — released full weights (default):** Download the **full SCOPE** checkpoint from [Google Drive](https://drive.google.com/drive/folders/1LFbt_ZrvPJgfbSr174lVPzxeQEkMO0Uz?usp=sharing). All supplied YAML files already point to:
+
+```text
+runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt
 ```
 
-The shell launcher checks that its configured COCO directories and annotation files exist before starting. Run it with paths appropriate to your machine:
+Place `best_val.pt` there to run without editing the checkpoint paths, or set `scope_common.scope_ckpt` in each YAML to its actual location. The Drive folder is also intended to contain **ablated models**; when selecting an ablated checkpoint, use checkpoint-compatible conditioning/inference and architecture settings, and give its evaluation a new `output_dir` (see [Pipeline documentation](PIPELINE.md#choosing-weights-and-configurations)).
+
+**Option B — train from scratch:**
 
 ```bash
 TRAIN_IMAGES=/data/coco/train2017 \
 TRAIN_JSON=/data/coco/annotations/instances_train2017.json \
 VAL_IMAGES=/data/coco/val2017 \
 VAL_JSON=/data/coco/annotations/instances_val2017.json \
-OUT_DIR=runs/scope_new_run \
-bash scope/train_scope.sh
+OUT_DIR=runs/scope_from_scratch \
+bash training/train_scope.sh
 ```
 
-**This starts training**; it is not a dry-run command. Before committing GPU time, inspect the launcher arguments, selected detector model, codec proxies, and output directory.
+When training completes, use the checkpoint stored in the output directory, typically `runs/scope_from_scratch/best_val.pt`.
 
-## 📊 6. Check evaluation outputs
+The released model is conditioned on **three** training codec families: `diff_jpeg`, `bmshj`, and `bpg_like`.
 
-After running a real evaluation:
+## 🎛️ 4. Configure your evaluation
+
+Edit these YAML files to set the correct paths:
+
+| Config | Experiments |
+|:--|:--|
+| `configs/eval.yaml` | Direct vs SCOPE for JPEG, BPG, BMSHJ and Cheng; JPEG2000 evaluated in `ablation.yaml`. |
+| `configs/ablation.yaml` | JPEG2000 transfer under the three trained conditions. |
+| `configs/timing.yaml` | Inference timing for family/severity settings. |
+
+The supplied YAMLs **already select the full model**. Their output directories are `outputs_scope_full_main`, `outputs_scope_full_jpeg2000`, and `outputs_scope_full_timing` respectively. Adapt their settings to your machine or a different checkpoint. The essential YAML fields include:
+
+```yaml
+# Example values — adapt to your setup
+output_dir: outputs_scope_full_main
+dataset:
+  images_dir: datasets/coco-2017/validation/data
+  annotations_json: datasets/coco-2017/validation/labels.json
+models:
+  server_model: models/yolo26x.pt
+scope_common: &scope_common
+  scope_ckpt: runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt
+  # Keep the existing architecture settings from your configuration.
+```
+
+This fragment illustrates **the default full-model paths**, not a replacement for the complete config; keep the original experiment definitions, codec templates, and model architecture parameters. For training- or conditioning-ablated weights, change `scope_ckpt` and `output_dir`, and ensure the architecture and actual model inputs match the checkpoint. The supplied inference path always passes family **and** severity; changing `condition_mode` in YAML alone does not reproduce family-only or severity-only ablations.
+
+JPEG2000 is an **unseen wavelet codec** and is **not present in `configs/eval.yaml`**. Use `configs/ablation.yaml`; SCOPE+JPEG2000 experiments condition on one of the three trained families, not on `jp2_like`. The wavelet label in the **unmodified JPEG2000 baseline** is codec metadata, not a SCOPE conditioning embedding.
+
+## 🎯 5. Generate codec–detector curves
+
+The main evaluation processes COCO images using the actual codec, runs YOLO on decoded images, and saves one result folder per experiment:
 
 ```bash
-python -m scope.evaluation.evaluate --config configs/eval.yaml
+python evaluation/evaluate_yolo26x_codecs.py --config configs/eval.yaml
+python evaluation/evaluate_yolo26x_codecs.py --config configs/ablation.yaml
 ```
 
-Inspect `output_dir` in the YAML and verify that each requested experiment has:
+Inspect the configured `output_dir` for:
 
 ```text
-<output_dir>/<experiment>/
-├── reconstructed/
-├── predictions_coco.json
-├── bandwidth.csv
-└── summary.json
+<output_dir>/
+├── <experiment-name>/
+│   ├── reconstructed/
+│   ├── predictions_coco.json
+│   ├── bandwidth.csv
+│   └── summary.json
+└── all_results.csv
 ```
 
-`summary.json` should contain a valid AP metric and rate statistic such as `dataset_bpp`. `bandwidth.csv` should contain per-image encoded bytes/rates, and the number of rows should match the number of evaluated images. The `reconstructed/` PNGs are decoded images, **not** the bitstreams used for bitrate accounting.
+`summary.json` reports detection metrics and bitrate; `bandwidth.csv` records encoded-size measurements. The `reconstructed` images are the decoded inputs consumed by the detectors.
 
-When comparing YOLO, RT-DETR, and Faster R-CNN, ensure that all detectors use the same COCO split, category-ID convention, experiment outputs, and intended model weights.
-
-## 📈 7. Audit BDBR curve provenance
-
-The production BDBR command reads every `summary.json` recursively under each provided source directory. Changing an experiment's YAML status later does **not** delete or hide its old output folder.
+## 🧪 6. Evaluate the same reconstructions with more detectors
 
 ```bash
-python -m scope.evaluation.ablation_bdbr \
+# RT-DETR-l
+python evaluation/evaluate_rtdetr_l_saved.py \
+  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --images-dir datasets/coco-2017/validation/data \
+  --annotations-json datasets/coco-2017/validation/labels.json \
+  --detector-weights PATH_TO_RTDETR_WEIGHTS \
+  --category-map coco91 \
+  --output-dir PATH_TO_RTDETR_RESULTS
+```
+
+```bash
+# Faster R-CNN ResNeXt-101-32x8d-FPN (Detectron2)
+python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py \
+  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --images-dir datasets/coco-2017/validation/data \
+  --annotations-json datasets/coco-2017/validation/labels.json \
+  --output-dir PATH_TO_FASTERRCNN_RESULTS
+```
+
+All detector comparisons should use identical reconstructed images, COCO annotations, and consistent COCO category-ID mapping.
+
+## 📈 7. Generate BDBR and LaTeX tables
+
+```bash
+python analysis/compute_bdbr.py \
   --detector-dir \
-    full:yolo=PATH_TO_YOLO_RESULTS \
+    full:yolo=outputs_scope_full_main \
     full:rtdetr=PATH_TO_RTDETR_RESULTS \
     full:fastrcnn=PATH_TO_FASTERRCNN_RESULTS \
   --annotations-json datasets/coco-2017/validation/labels.json \
@@ -184,12 +174,28 @@ python -m scope.evaluation.ablation_bdbr \
   --out-dir outputs_scope_bdbr
 ```
 
-Open `outputs_scope_bdbr/collected_results.csv` and inspect `summary_path`, `experiment`, `codec`, `detector`, `curve_type`, `AP`, and `dataset_bpp` for all rows. Separate results from different checkpoints and from runs generated before configuration changes.
+The output contains `bdbr_summary.csv`, `pairwise_equal_rate_and_bdbr.csv`, and a `latex/` folder. The analysis computes BDBR over the common detection-AP interval. **Negative BDBR represents fewer bits for the same AP.**
 
-The BDBR status rows should be checked for missing curves, too few Pareto points, or a missing common AP interval. **An interpolated rate/AP point is not an additional experiment.** Cheng is compared **only as SCOPE versus direct compression** in the integrated BDBR analysis; JPEG2000 conditioning is analyzed separately.
+For the training-objective ablations, evaluate the respective **ablated checkpoint** into an independent directory first; then pass these directories as `no_task:...` and `no_bg:...` and set `--table-methods full,no_task,no_bg`. Do not relabel full-model outputs as ablated runs.
 
-## ⚠️ 8. Limits of these checks
+## ⏱️ 8. Benchmark pre-editing
 
-Syntax checks, YAML inspection, filesystem listings and `--help` can catch many reproducibility problems, but **they do not guarantee that every function call, dynamic import, runtime-generated path, or codec interface works**.
+```bash
+python evaluation/benchmark_scope.py \
+  --config configs/timing.yaml \
+  --warmup 20 --repeat 5 --limit 100
+```
 
-A full reproducibility check still requires real training/inference, real codec tools, a detector model, and evaluation on the complete COCO validation split. Do not report a small diagnostic subset's AP or BDBR as a paper reproduction. Record your checkpoint, configuration, actual codec, detector, rate metric, interpolation method, and the common AP interval for each comparison.
+Timing reports the model's image pre-editing path. Full compression and detector latency are separate operations.
+
+## 🔎 9. Check your experiment outputs
+
+For each reported detector/codec combination, use the same COCO validation split and detector settings. In the analysis outputs, `collected_results.csv` links the measured AP and bitrate values to their experiment summaries. `interpolated_equal_rate_points.csv` provides numerical rate-matched comparisons; these are interpolated from the measured curves.
+
+The paper's main results use the full **5,000-image COCO 2017 validation set**, not a reduced debugging subset. For JPEG2000, compare the three valid pretrained conditioning choices using the **same actual codec settings**. Cheng belongs to the SCOPE-versus-direct-compression comparison rather than the training-loss ablation set.
+
+### 📚 More details
+
+- [🏠 README](../README.md)
+- [📖 Architecture, pipeline and module reference](PIPELINE.md)
+- 📄 **Paper:** Proceedings link will be added once available.

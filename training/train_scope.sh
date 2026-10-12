@@ -6,7 +6,7 @@ export PYTHONUNBUFFERED=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-TRAIN_MODULE="${TRAIN_MODULE:-scope.train_scope}"
+TRAIN_SCRIPT="${TRAIN_SCRIPT:-${PROJECT_ROOT}/training/train_scope.py}"
 
 TRAIN_IMAGES="${TRAIN_IMAGES:-${PROJECT_ROOT}/datasets/coco-2017/train/data}"
 TRAIN_JSON="${TRAIN_JSON:-${PROJECT_ROOT}/datasets/coco-2017/train/labels.json}"
@@ -34,7 +34,7 @@ BG_SEVERITY_DROP="${BG_SEVERITY_DROP:-0.0}"
 
 echo "Project root:       ${PROJECT_ROOT}"
 echo "Script dir:         ${SCRIPT_DIR}"
-echo "Train module:       ${TRAIN_MODULE}"
+echo "Train script:       ${TRAIN_SCRIPT}"
 echo "Train images:       ${TRAIN_IMAGES}"
 echo "Train JSON:         ${TRAIN_JSON}"
 echo "Val images:         ${VAL_IMAGES}"
@@ -54,7 +54,7 @@ echo "BPG proxy mode:     ${BPG_PROXY_MODE}"
 echo "Severity condition: scalar severity, internal basis [s,s^2,s^3,hi50,hi75,hi90]"
 echo "Batch / LR:         ${BATCH} / ${LR}"
 
-test -f "${PROJECT_ROOT}/scope/train_scope.py" || { echo "ERROR: missing training module"; exit 1; }
+test -f "${TRAIN_SCRIPT}" || { echo "ERROR: missing training script: ${TRAIN_SCRIPT}"; exit 1; }
 test -d "${TRAIN_IMAGES}" || { echo "ERROR: missing TRAIN_IMAGES: ${TRAIN_IMAGES}"; exit 1; }
 test -f "${TRAIN_JSON}" || { echo "ERROR: missing TRAIN_JSON: ${TRAIN_JSON}"; exit 1; }
 test -d "${VAL_IMAGES}" || { echo "ERROR: missing VAL_IMAGES: ${VAL_IMAGES}"; exit 1; }
@@ -68,7 +68,7 @@ if [[ -n "${D2_WEIGHTS}" ]]; then
 fi
 
 cd "${PROJECT_ROOT}"
-python -m "${TRAIN_MODULE}" \
+python "${TRAIN_SCRIPT}" \
   --images-dir "${TRAIN_IMAGES}" \
   --annotations-json "${TRAIN_JSON}" \
   --val-images-dir "${VAL_IMAGES}" \

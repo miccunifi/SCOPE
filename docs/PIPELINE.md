@@ -1,157 +1,128 @@
-# 📖 SCOPE: Implementation and pipeline guide
+# 📖 SCOPE — Pipeline and Code Reference
 
-This document describes the pipeline implemented in **SCOPE: Semantic COdec Pre-Editing for Object-Preserving Compression**, from data loading to training, real-codec evaluation, detector re-evaluation, and BDBR analysis.
+This guide describes the **SCOPE implementation** from input images to training, inference, detector evaluation, and BDBR tables. All commands are run from the repository root.
 
-**Run commands from the repository root.** Paths in the current YAML files are interpreted relative to the process working directory; they are not automatically relative to `configs/`.
+> 📄 **Paper:** *SCOPE: Semantic COdec Pre-Editing for Object-Preserving Compression* — Silvia Dani, Leonardo Galteri, Marco Bertini. Proceedings link will be added when available.
 
-> 📄 **Paper:** Proceedings link coming soon · 🏠 [README](../README.md) · 🔎 [Validation guide](TESTING.md)
+## 🧠 1. Architecture
 
-## 🔄 1. End-to-end workflow
+![SCOPE FiLM-conditioned U-Net architecture with codec-family embedding, severity basis, attention, and two residual heads](images/scope_architecture.png)
 
-### 🏋️ Training
+*Figure 1. Codec-family and severity conditioning modulates the image encoder–decoder. The network predicts an attention map and object/background residuals.*
 
-```text
-COCO images + bounding boxes
-            │
-            ▼
-  Crop sampling and GT masks                 Codec family f + severity s
-            │                                            │
-            └────────────────┬───────────────────────────┘
-                             ▼
-                   SCOPE conditional U-Net
-                             │
-             Attention + object/background edits
-                             │
-                             ▼
-                  Differentiable codec proxy
-                             │
-                ┌────────────┴────────────┐
-                ▼                         ▼
-       Rate/region/attention       Frozen detector feature
-          regularization               consistency
-                └────────────┬────────────┘
-                             ▼
-                 Loss → gradient → optimizer
-                             │
-                             ▼
-                      best_val.pt
-```
+SCOPE takes an RGB image `I`, a codec-family identifier `f`, and normalized severity `s ∈ [0, 1]`. Its conditioning branch combines a **learned family embedding** with the severity basis, then produces FiLM parameters for the convolutional image branch.
 
-Only the **pre-editor** is trained. Codec proxies and the detector used for supervision are fixed. Ground-truth boxes are used to build training masks; they are **not** required to pre-edit an image at inference time.
+The pre-editor predicts three outputs:
 
-### 📊 Evaluation and analysis
+| Output | Meaning |
+|:--|:--|
+| `A` | Attention map that controls where object preservation is emphasized. |
+| `Δ_obj` | Bounded residual applied to the original image in the object branch. |
+| `Δ_bg` | Bounded residual applied to the blurred-background branch. |
 
-```text
-COCO validation image
-   ├──► Baseline: directly compress input ──────────────────┐
-   └──► SCOPE: pre-edit → real codec ───────────────────────┤
-                                                           ▼
-                                                 Reconstructed image
-                                                           │
-                                      ┌────────────────────┴──────────────────┐
-                                      ▼                                       ▼
-                               YOLO + COCOeval                      Saved-image detectors
-                                      │                               (RT-DETR, Faster R-CNN)
-                                      └──────────────────┬────────────────────┘
-                                                         ▼
-                                            summary.json + bandwidth.csv
-                                                         │
-                                                         ▼
-                                           Rate–accuracy / BDBR tables
-```
+The final edit blends both branches using `A`. It is then passed to an **ordinary image codec**. The model is a pre-encoder transform: the codec bitstream and downstream detector remain unchanged.
 
-**Important:** The training compression proxies are not used to measure final bitrate. The reported evaluation bitrate is calculated from **actual encoded data sizes**, not from the file sizes of saved reconstructed PNGs.
+**Training families** are `diff_jpeg` (Diff-JPEG proxy), `bmshj` (learned hyperprior proxy), and `bpg_like` (BPG-like surrogate). The trained family mapping and severity normalization are reused during inference.
 
-## 📁 2. Directory structure and file responsibilities
+## 🔥 2. Training pipeline
 
-```text
-SCOPE/
-├── README.md                         GitHub introduction and quick start
-├── docs/
-│   ├── PIPELINE.md                   This document
-│   ├── TESTING.md                    Manual validation and reproduction checks
-├── configs/
-│   ├── eval.yaml                     Main evaluated codecs and detectors
-│   ├── ablation.yaml                 JPEG2000 cross-family conditioning
-│   └── timing.yaml                   Family/severity timing runs
-├── scope/
-│   ├── __init__.py                   Package exports
-│   ├── model.py                      Network architecture and editing heads
-│   ├── conditioning.py               Training family/severity choices
-│   ├── data.py                       COCO dataset, crops, training masks
-│   ├── codecs.py                     Differentiable compression proxies
-│   ├── losses.py                     Training objective functions
-│   ├── teachers.py                   Frozen detector supervision
-│   ├── training.py                   Training loop, validation, checkpoints
-│   ├── train_scope.py                Argument parser, training entry point
-│   ├── train_scope.sh                Training launcher with defaults
-│   ├── inference.py                  Checkpoint loader, image pre-editing
-│   └── evaluation/
-│       ├── __init__.py               Evaluation package
-│       ├── evaluate.py               Real codecs + YOLO + COCO AP/AR
-│       ├── dataset.py                Evaluation COCO records
-│       ├── conditioning.py           Codec-family aliases, severity at test time
-│       ├── codec_transmissions.py    SCOPE + real codec pathways
-│       ├── transmission.py           JPEG/learned/ROI transmissions
-│       ├── coco_metrics.py           COCOeval metrics
-│       ├── categories.py             COCO class-ID conversions
-│       ├── yolo_utils.py             YOLO predictor adapter
-│       ├── rtdetr_utils.py           RT-DETR predictor adapter
-│       ├── saved_rtdetr.py           RT-DETR on reconstructed images
-│       ├── saved_multi_detector.py   TorchVision/Detectron2 on saved images
-│       ├── rate_distortion.py        Per-category and severity analysis
-│       ├── timing.py                 Timing and aggregation
-│       ├── visualize.py              Qualitative image/box comparisons
-│       ├── roi_codec_model.py        Optional ROI compression network
-│       ├── roi_utils.py              ROI geometry and utilities
-│       ├── tile_utils.py             Tile partitioning/priority utilities
-│       ├── utils.py                  Shared image/file/geometry operations
-│       ├── ablation_bdbr.py          CLI forwarding to BDBR analysis
-│       └── ablation/
-│           ├── __init__.py           Analysis package
-│           ├── __main__.py           Alternative module entry point
-│           ├── cli.py                CLI arguments and aggregation
-│           ├── common.py             Codec, detector and method naming
-│           ├── results.py            Read and normalize evaluation outputs
-│           ├── curves.py             Pareto filtering and BDBR integration
-│           ├── comparisons.py        Pairwise and equal-rate comparisons
-│           └── tables.py             CSV/LaTeX tables, diagnostics
-├── requirements.txt                 Python dependencies
-├── environment.yml                  Conda environment configuration
-└── .gitignore                        Ignore external assets and outputs
-```
+![SCOPE training with COCO boxes, training masks, three loss branches, codec proxy, and frozen detector](images/scope_training_pipeline.png)
 
-The public-facing repository no longer includes `tests/` or `tools/`. No documentation command depends on those directories.
+*Figure 2. The image and condition enter SCOPE; differentiable codec proxies and a frozen detector provide training signals. Only the pre-editor weights are updated.*
 
-### 🎛️ Main modules
+1. **Load COCO:** sample training images with annotated bounding boxes; create object-centered crops.
+2. **Build masks:** compute attention, detector-context, and background masks from the boxes.
+3. **Sample a condition:** select a training codec family and compression severity.
+4. **Pre-edit:** run the FiLM-conditioned image network and combine its attention/residual outputs.
+5. **Proxy-compress:** pass the edited image through the selected differentiable codec proxy.
+6. **Compute losses:** encourage attention in relevant regions, background simplification, residual regularity, and consistency with features from a frozen Faster R-CNN teacher.
+7. **Optimize SCOPE:** backpropagate the losses to the pre-editor; validate and write checkpoints.
 
-| Module | Role |
-|---|---|
-| `scope/model.py` | U-Net-like pre-editor with FiLM-conditioned feature blocks, attention head, object residual and background residual. |
-| `scope/conditioning.py` | Sampling family IDs and compression severity during training. |
-| `scope/data.py` | COCO image crops and box-based masks for training. |
-| `scope/codecs.py` | Differentiable Diff-JPEG, BMSHJ and BPG-like training proxies. |
-| `scope/losses.py` | Attention, background-simplification, rate and residual terms. |
-| `scope/teachers.py` | Frozen detector feature consistency between clean and edited-compressed images. |
-| `scope/training.py` | Optimization, validation, model checkpointing and logging. |
-| `scope/inference.py` | Load model/conditioning metadata and pre-edit images. |
-| `scope/evaluation/evaluate.py` | Execute configured real-codec experiments and compute YOLO-based COCO AP. |
-| `scope/evaluation/saved_rtdetr.py` | Evaluate saved reconstructions with RT-DETR. |
-| `scope/evaluation/saved_multi_detector.py` | Evaluate saved reconstructions with TorchVision or Detectron2 detectors. |
-| `scope/evaluation/rate_distortion.py` | Organize prediction-based AP by codec, detector, category and severity. |
-| `scope/evaluation/ablation/` | Read existing summaries, form measured curves, compute BDBR, generate tables. |
+**At inference**, the masks, boxes, teacher, and differentiable compression proxies are not needed. SCOPE produces an image that can be encoded by a real codec.
 
-The `roi_*` and `tile_utils.py` modules support optional ROI/tile transmission paths and are not necessary for the main codec lists in the supplied configs.
+### 🗂️ Training files
 
-## ⚙️ 3. Dependencies and external assets
+| File | Responsibility |
+|:--|:--|
+| `scope/model.py` | Image encoder–decoder, FiLM conditioning, attention/object/background heads. |
+| `scope/conditioning.py` | Codec-family probabilities, severity sampling and mapping. |
+| `scope/data.py` | COCO datasets, crop sampling, bounding boxes and training masks. |
+| `scope/codecs.py` | Differentiable Diff-JPEG, BMSHJ and BPG-like proxies. |
+| `scope/losses.py` | Background, rate, attention, detector and residual objectives. |
+| `scope/teachers.py` | Frozen detector feature extraction/supervision. |
+| `scope/training.py` | Epoch loop, optimizer, validation, logging and checkpoints. |
+| `scope/train_scope.py` | Internal CLI parser and its connection to the trainer. |
+| `training/train_scope.py` | Public direct training command that delegates to the CLI parser. |
+| `training/train_scope.sh` | Paper-style training configuration and convenient launcher. |
 
-Install the core Python dependencies:
+### 🧰 Command-line scripts
+
+These small, named entry points invoke the corresponding implementation modules. They do not contain new model, codec, detector, or BDBR algorithms.
+
+| Command | Implementation | Purpose |
+|:--|:--|:--|
+| `python training/train_scope.py` | `scope/train_scope.py` | Training CLI. |
+| `python evaluation/evaluate_yolo26x_codecs.py` | `scope/evaluation/evaluate.py` | Real codecs and YOLO26x evaluation. |
+| `python evaluation/evaluate_rtdetr_l_saved.py` | `scope/evaluation/saved_rtdetr.py` | RT-DETR-l transfer. |
+| `python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py` | `scope/evaluation/saved_multi_detector.py` | Faster R-CNN ResNeXt-101-32x8d-FPN, using Detectron2. |
+| `python analysis/compute_bdbr.py` | `scope/evaluation/ablation_bdbr.py` | BDBR and LaTeX. |
+| `python evaluation/benchmark_scope.py` | `scope/evaluation/timing.py` | Pre-editor timing. |
+| `python evaluation/evaluate_categories.py` | `scope/evaluation/rate_distortion.py` | Per-category analysis. |
+| `python evaluation/visualize_results.py` | `scope/evaluation/visualize.py` | Qualitative detection figures. |
+
+Run each with `--help` for supported options. Run commands from the **repository root**.
+
+### 🚀 Run training
 
 ```bash
+# Use the defaults from the training launcher
+bash training/train_scope.sh
+```
+
+For another COCO location, set the corresponding environment variables:
+
+```bash
+TRAIN_IMAGES=/data/coco/train2017 \
+TRAIN_JSON=/data/coco/annotations/instances_train2017.json \
+VAL_IMAGES=/data/coco/val2017 \
+VAL_JSON=/data/coco/annotations/instances_val2017.json \
+OUT_DIR=runs/scope_from_scratch \
+CUDA_VISIBLE_DEVICES=0 \
+BATCH=8 \
+LR=1e-4 \
+bash training/train_scope.sh
+```
+
+The launcher uses a 512×512 crop, a 48-channel base network, 40 epochs, the three training proxy families, and Detectron2 Faster R-CNN supervision. The run saves its checkpoint files under `OUT_DIR` (including `best_val.pt` after applicable validation).
+
+For all training arguments:
+
+```bash
+python training/train_scope.py --help
+```
+
+### ✅ Quality checks
+
+The `tests/` directory covers configuration validity, codec subprocess interfaces, forward/backward passes, checkpoint loading, detector evaluation output contracts, timing, and BDBR. The `tools/` directory contains static import/call audits and optional real-environment preflight checks. Run from the repository root:
+
+```bash
+python tools/run_full_tests.py
+python tools/validate_environment.py --mode static
+```
+
+Full model/data checks are described in [✅ Testing](TESTING.md).
+
+## 📦 3. Data, dependencies and model weights
+
+### Installation
+
+```bash
+git clone https://github.com/SilviaDani/SCOPE.git
+cd SCOPE
 pip install -r requirements.txt
 ```
 
-`environment.yml` contains an alternative Conda environment specification. The training launcher selects Detectron2 feature supervision; install a Detectron2 build compatible with your PyTorch/CUDA environment. The differentiable-JPEG backend used for training may also require a separate implementation. Real BPG and JPEG2000 use external codec command-line tools, typically:
+`environment.yml` offers an alternative CUDA-oriented Conda environment. Training with the paper's frozen teacher additionally needs **Detectron2** with a suitable CUDA/PyTorch build and the differentiable JPEG implementation. BPG/JPEG2000 require command-line codec tools, which are external to the Python package:
 
 ```bash
 command -v bpgenc
@@ -160,152 +131,167 @@ command -v opj_compress
 command -v opj_decompress
 ```
 
-Missing binaries matter only for workflows that use those codecs. The repository does not distribute COCO images, frozen detector weights, or SCOPE training checkpoints.
+### Data layout
 
-**Expected default paths:**
+Download COCO 2017 from the [official website](https://cocodataset.org/#download). You may use the default layout below or point the YAML/launcher to your own folders:
 
 ```text
-datasets/coco-2017/train/data/
-datasets/coco-2017/train/labels.json
-datasets/coco-2017/validation/data/
-datasets/coco-2017/validation/labels.json
-models/yolo26x.pt
-runs/<training-run>/best_val.pt
+datasets/coco-2017/
+├── train/
+│   ├── data/                  # COCO training images
+│   └── labels.json           # COCO instance annotations for train
+└── validation/
+    ├── data/                  # COCO validation images
+    └── labels.json           # COCO instance annotations for validation
 ```
 
-The configured paths in `configs/*.yaml` and the environment variables in `scope/train_scope.sh` take precedence over these examples. COCO annotations must contain the image list, object annotations and category metadata needed for evaluation.
+For YOLO26x, the default configuration refers to `models/yolo26x.pt`. The three evaluation YAMLs default to the same **full SCOPE** checkpoint (`runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt`). You may download its weights from [Google Drive](https://drive.google.com/drive/folders/1LFbt_ZrvPJgfbSr174lVPzxeQEkMO0Uz?usp=sharing), place them at the configured path, or edit `scope_common.scope_ckpt` to their actual location. Training from scratch is also supported.
 
-Legacy checkpoint directories named `preedit_*` are deliberately unchanged when the Python code was renamed to SCOPE. **Do not rename checkpoints solely for consistency.**
+### Choosing weights and configurations
 
-## 🎛️ 4. Conditioning, codec families and YAML configs
+All three shipped configurations evaluate the **full model**, not an ablated variant:
 
-SCOPE is conditioned on a codec-family embedding and normalized severity `s ∈ [0, 1]` (higher values indicate stronger compression). The conditioning branch expands `s` into polynomial and high-severity basis terms, then uses an MLP to produce FiLM parameters for the image model.
+| YAML | Default output directory | Default checkpoint |
+|:--|:--|:--|
+| `configs/eval.yaml` | `outputs_scope_full_main` | Full SCOPE |
+| `configs/ablation.yaml` | `outputs_scope_full_jpeg2000` | Full SCOPE |
+| `configs/timing.yaml` | `outputs_scope_full_timing` | Full SCOPE |
 
-| Actual codec | Training status | Conditioning at evaluation |
-|---|---|---|
-| JPEG | Seen proxy | `diff_jpeg` (`block_dct` in YAML) |
-| BPG | Seen proxy | `bpg_like` (`intra_smooth`) |
-| BMSHJ | Seen proxy | `bmshj` (`learned`) |
-| Cheng | Unseen codec | Trained learned family (`bmshj`) |
-| JPEG2000 | Unseen wavelet codec | **Three separate experiments** using `diff_jpeg`, `bmshj`, or `bpg_like` |
+Each YAML defines a `scope_common` anchor containing `scope_ckpt`, network architecture parameters, and `condition_mode`, which are inherited by the SCOPE experiments. The default checkpoint path is:
 
-The checkpoint family mapping contains `diff_jpeg`, `bmshj`, and `bpg_like`; **`jp2_like` is not trained**. Thus, direct JPEG2000 baselines may appear in `configs/eval.yaml`, but SCOPE+JPEG2000 with `codec_family: wavelet` would request a non-existent embedding. The valid unseen-codec study instead uses `configs/ablation.yaml` with actual JPEG2000 compression and three *trained* family conditions.
+```text
+runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt
+```
 
-### Configuration roles
+The linked Drive folder is also intended to distribute **training/conditioning ablation checkpoints**. The YAMLs are *examples of the full-model setup*, not universal settings for every checkpoint. To run an ablation:
 
-| Config | Purpose |
-|---|---|
-| `configs/eval.yaml` | Main JPEG/BPG/BMSHJ/Cheng curves and baseline measurements, including direct JPEG2000 compression. |
-| `configs/ablation.yaml` | JPEG2000 baselines plus the three trained conditioning families at several codec rates. |
-| `configs/timing.yaml` | Forward-pass timing for each trained family across severity settings. |
+1. Copy the corresponding YAML to a new file (for example, `configs/eval_family_only.yaml`), keeping the original full-model config unchanged.
+2. Change `scope_common.scope_ckpt` to the downloaded ablated `best_val.pt` file, and change `output_dir` to a **new, variant-specific directory** (for example, `outputs_scope_family_only_main`).
+3. Match architecture parameters (`base_ch`, attention/background settings, etc.) and the **actual conditioning inputs** to the chosen checkpoint's training setup. The current SCOPE inference path always passes **both** codec-family and severity to the model; merely changing the YAML `condition_mode` field does **not** switch off a conditioning input. Reproducing a family-only or severity-only ablation may therefore require a matching inference implementation/adapter, not just selecting different weights. Inspect the checkpoint's saved training arguments and use the evaluation procedure corresponding to that variant.
+4. Use the resulting directory when calling detector-transfer or BDBR scripts, with the correct method label (`full`, `no_task`, `no_bg`, etc.). Never combine partial outputs from different checkpoints in one output directory.
 
-The number of **active** experiments may change when entries are enabled or commented out. Use the YAML `experiments` list rather than a hard-coded experiment count. Preserved commented-out blocks do not execute. Shared YAML anchors such as `scope_common` and `codec_templates` are configuration conveniences; they do not add experiments by themselves.
+`configs/ablation.yaml` covers **JPEG2000 codec-family transfer using full SCOPE**, which is distinct from the **training-objective/conditioning ablations** that require separately trained weights.
 
-Each experiment has a `name` (output folder) and `mode` (codec/transmission path). SCOPE experiments may also specify the checkpoint, architecture, `codec_family`, and optionally `condition.severity` (other cases derive severity from the codec parameter). An experiment using SCOPE must request a family that exists in the checkpoint mapping.
+These paths are relative to the repository root; checkpoint files and datasets are **not** included in the ZIP.
 
-## 🏋️ 5. Training
+## 🎛️ 4. Codec families, severity and experiment configs
 
-The default launcher is co-located with its Python CLI:
+Larger normalized severity means **stronger compression**. Codec parameters such as JPEG quality, BPG QP and learned-codec quality are converted to severity using codec-specific ranges.
+
+| Real codec | In training? | SCOPE family condition |
+|:--|:--|:--|
+| JPEG | ✅ Diff-JPEG proxy | `block_dct` → `diff_jpeg` |
+| BPG | ✅ BPG-like proxy | `intra_smooth` → `bpg_like` |
+| BMSHJ | ✅ BMSHJ proxy | `learned` → `bmshj` |
+| Cheng | 🌍 Unseen learned codec | `learned` → `bmshj` |
+| JPEG2000 | 🌍 Unseen wavelet codec | Choose **one of the three trained families** |
+
+The pretrained checkpoint has **no dedicated `jp2_like`/wavelet family embedding**. In the JPEG2000 transfer experiment, JPEG2000 is the actual codec, while the conditioning input is one of `block_dct`, `learned`, or `intra_smooth`.
+
+| YAML | Usage |
+|:--|:--|
+| `configs/eval.yaml` | JPEG/BPG/BMSHJ/Cheng direct-vs-SCOPE evaluation (46 active experiments). |
+| `configs/ablation.yaml` | JPEG2000 cross-family SCOPE experiments using the *trained* family embeddings. |
+| `configs/timing.yaml` | Pre-editor execution time across families and severities. |
+
+An active experiment is an element of a YAML `experiments:` list. Its `name` names the output folder, its `mode` selects the codec path, and SCOPE experiments inherit network/checkpoint settings from `scope_common`. **Main `eval.yaml` has no JPEG2000/wavelet-family templates**; all JPEG2000 tests are isolated in `ablation.yaml`. For new datasets, detectors or model variants, edit the relevant paths and settings as described above.
+
+## 🎯 5. Real-codec evaluation
+
+Evaluation uses **real encoded bitstreams** for bitrate measurement, not the differentiable training proxies.
 
 ```bash
-bash scope/train_scope.sh
+python evaluation/evaluate_yolo26x_codecs.py --config configs/eval.yaml
+python evaluation/evaluate_yolo26x_codecs.py --config configs/ablation.yaml
 ```
 
-To supply another COCO location:
+The main evaluator (`scope/evaluation/evaluate.py`) loads the COCO validation split, processes each active experiment, runs YOLO on decoded images, and computes COCO AP/AR. Each experiment has either:
 
-```bash
-TRAIN_IMAGES=/data/coco/train2017 \
-TRAIN_JSON=/data/coco/annotations/instances_train2017.json \
-VAL_IMAGES=/data/coco/val2017 \
-VAL_JSON=/data/coco/annotations/instances_val2017.json \
-OUT_DIR=runs/scope_experiment \
-CUDA_VISIBLE_DEVICES=0 BATCH=8 LR=1e-4 \
-bash scope/train_scope.sh
+```text
+Original image ────────────► Real codec ─► Reconstructed image ─► Detector
+Original image ─► SCOPE ──► Real codec ─► Reconstructed image ─► Detector
 ```
 
-`scope/train_scope.sh` is the **source of truth** for its experiment parameters: 512×512 crops, 40 epochs, scratch initialization, three codec proxies, family/severity sampling and Detectron2 Faster R-CNN feature supervision. It can be customized through environment variables or by editing the launcher.
-
-Run `python -m scope.train_scope --help` for training flags. Trained runs save configuration, logs and checkpoints such as `best_val.pt` in the selected `OUT_DIR` (depending on completed validation and saving events).
-
-## 📊 6. Real-codec evaluation
-
-```bash
-python -m scope.evaluation.evaluate --config configs/eval.yaml
-python -m scope.evaluation.evaluate --config configs/ablation.yaml
-```
-
-For each COCO image the pipeline runs either direct compression or SCOPE pre-editing followed by a **real codec**, saves the reconstruction, performs YOLO inference, and aggregates predictions through COCOeval. The detector configuration comes from `models.server_model` in the YAML, typically `models/yolo26x.pt`.
-
-Evaluation produces under the YAML `output_dir`:
+The YAML's `output_dir` is populated with:
 
 ```text
 <output_dir>/
-├── <experiment-name>/
-│   ├── reconstructed/        # Reconstructed images used for detection
-│   ├── attention_debug/      # Optional intermediate images
-│   ├── predictions_coco.json # COCO-style detection predictions
-│   ├── bandwidth.csv         # Per-image encoded bytes and rate
-│   └── summary.json          # AP/AR, dataset_bpp, average size
-└── all_results.csv           # Aggregate row per experiment
+├── <experiment>/
+│   ├── reconstructed/           # Decoded images for detection
+│   ├── attention_debug/         # Optional model intermediates
+│   ├── predictions_coco.json    # Detector output in COCO format
+│   ├── bandwidth.csv            # Per-image encoded bytes / bitrate
+│   └── summary.json             # AP, AR, dataset_bpp, image-size statistics
+└── all_results.csv              # Summary for all experiments
 ```
 
-**Do not compute BDBR from reconstructed PNG sizes**: those PNGs are for downstream inference, not compressed codec bitstream sizes. Use the rate fields in the saved summaries or `bandwidth.csv`.
+`dataset_bpp` represents actual encoded bits divided by the evaluated image pixels. The reconstructed PNGs are for **detector evaluation**, not rate calculation.
 
-## 🎯 7. Additional detectors without recompression
+### 🔧 Evaluation implementation files
 
-Both modules below consume images already saved under `<source-eval-dir>/<experiment>/reconstructed/`, so they do not re-run SCOPE or compress the images again.
+| File | Role |
+|:--|:--|
+| `scope/evaluation/evaluate.py` | Main experiment loop and CSV aggregation. |
+| `scope/evaluation/dataset.py` | COCO evaluation image records. |
+| `scope/evaluation/conditioning.py` | Family aliases and severity conversion for test-time codecs. |
+| `scope/evaluation/codec_transmissions.py` | Real BPG/JPEG2000 and SCOPE transmission paths. |
+| `scope/evaluation/transmission.py` | JPEG and learned-codec transmissions, optional ROI paths. |
+| `scope/evaluation/yolo_utils.py` | Ultralytics detector interface. |
+| `scope/evaluation/coco_metrics.py` | COCOeval metric evaluation. |
+| `scope/evaluation/categories.py` | Mapping COCO80 detector labels to official COCO category IDs. |
+| `scope/evaluation/utils.py` | Image loading/writing, shared geometry and file functions. |
+| `scope/inference.py` | Load a trained SCOPE model and edit image tensors. |
+
+## 🧪 6. Transfer across object detectors
+
+Re-use the saved reconstructed images, so each detector sees **the same compressed pixels**. These commands evaluate results without recompressing the images.
+
+### RT-DETR
 
 ```bash
-# RT-DETR
-python -m scope.evaluation.saved_rtdetr \
-  --source-eval-dir PATH_TO_YOLO_EVALUATION \
+python evaluation/evaluate_rtdetr_l_saved.py \
+  --source-eval-dir PATH_TO_YOLO_RESULTS \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
   --detector-weights PATH_TO_RTDETR_WEIGHTS \
   --category-map coco91 \
   --output-dir PATH_TO_RTDETR_RESULTS
+```
 
-# Faster R-CNN (TorchVision example)
-python -m scope.evaluation.saved_multi_detector \
-  --source-eval-dir PATH_TO_YOLO_EVALUATION \
+### Faster R-CNN (paper-aligned detector)
+
+```bash
+python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py \
+  --source-eval-dir PATH_TO_YOLO_RESULTS \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
-  --backend torchvision \
-  --detector fasterrcnn_resnet50_fpn \
-  --weights DEFAULT \
   --output-dir PATH_TO_FASTERRCNN_RESULTS
 ```
 
-The paper uses Faster R-CNN with a **ResNeXt-101-32x8d-FPN** backbone, so the TorchVision ResNet-50 example is **not equivalent to the paper detector**. Select the appropriate Detectron2 backend/configuration for a paper-matched comparison. Check `--help` for backend choices and model arguments.
+The paper uses **Faster R-CNN ResNeXt-101-32x8d-FPN**. The `evaluate_fasterrcnn_x101_fpn_saved.py` script selects Detectron2 and `fasterrcnn_x101_fpn` automatically. It uses the Detectron2 model-zoo checkpoint by default; use `--detectron2-weights` for an explicit weight file. A TorchVision ResNet-50 checkpoint is a different detector.
 
-**Category IDs must be consistent.** COCO uses official category IDs with gaps; Ultralytics models use contiguous 80-class IDs. The `coco91` mapping matters when comparing AP across detectors.
+`scope/evaluation/saved_rtdetr.py`, `scope/evaluation/rtdetr_utils.py`, and `scope/evaluation/saved_multi_detector.py` implement these inference paths. COCO category IDs must be mapped consistently to the official annotation IDs.
 
-## 📈 8. BDBR, interpolated points and tables
+## 📈 7. Rate–accuracy curves and BDBR
 
-The BDBR entry point is `scope/evaluation/ablation_bdbr.py`, delegating to `scope/evaluation/ablation/cli.py`. The calculation pipeline is:
+The BDBR code consumes the measured `summary.json` and `bandwidth.csv` files produced by evaluation; the main implementation resides in `scope/evaluation/ablation/`:
 
-```text
-Saved summary.json + bandwidth.csv
-                 │
-                 ▼
-       results.py  — normalize measured AP and bpp
-                 │
-                 ▼
-       curves.py   — group, deduplicate, Pareto-filter
-                 │
-                 ▼
-      comparisons.py — equal-rate deltas and pairwise BDBR
-                 │
-                 ▼
-       tables.py   — CSV, LaTeX, diagnostic export
-```
+| File | Role |
+|:--|:--|
+| `scope/evaluation/ablation_bdbr.py` | Public BDBR entry point. |
+| `scope/evaluation/ablation/cli.py` | CLI settings and analysis execution. |
+| `scope/evaluation/ablation/common.py` | Codec, detector, method and metric conventions. |
+| `scope/evaluation/ablation/results.py` | Read measured AP, bpp and experiment metadata. |
+| `scope/evaluation/ablation/curves.py` | Curve preparation, Pareto filtering and BDBR interpolation. |
+| `scope/evaluation/ablation/comparisons.py` | Pairwise equal-rate comparisons. |
+| `scope/evaluation/ablation/tables.py` | CSV/LaTeX tables and summary statistics. |
 
-### Example: SCOPE vs. direct compression
+### SCOPE versus direct compression
 
 ```bash
-python -m scope.evaluation.ablation_bdbr \
+python analysis/compute_bdbr.py \
   --detector-dir \
-    full:yolo=PATH_TO_YOLO_RESULTS \
+    full:yolo=outputs_scope_full_main \
     full:rtdetr=PATH_TO_RTDETR_RESULTS \
     full:fastrcnn=PATH_TO_FASTERRCNN_RESULTS \
   --annotations-json datasets/coco-2017/validation/labels.json \
@@ -313,16 +299,12 @@ python -m scope.evaluation.ablation_bdbr \
   --out-dir outputs_scope_bdbr
 ```
 
-For the objective ablations, include separate source roots labeled `no_task:...` and `no_bg:...`, and select `--table-methods full,no_task,no_bg`.
+For training-objective ablations, pass corresponding source directories labeled `no_task:...` and `no_bg:...`, and choose `--table-methods full,no_task,no_bg`. The shared-aperture comparisons use measured detector **AP** and actual **bitrate**, with negative BDBR indicating rate savings at matched AP.
 
-The main BDBR analysis includes JPEG, BPG and BMSHJ, with **Cheng restricted to SCOPE versus baseline**. JPEG2000 cross-family results are separate. The published **TSW-pre** reference on Cheng comes from a digitized published curve and is **not automatically generated** from SCOPE experiments.
-
-The BDBR sign convention is **negative = test curve achieves the same AP at a lower bitrate**. Curves are compared over their shared AP interval; invalid overlap and insufficient points are reported through status columns rather than fabricated values. Interpolated equal-rate samples and PCHIP integration points are numerical estimates, not newly evaluated images.
-
-Outputs include:
+Output tables are saved in the selected directory:
 
 ```text
-<analysis-out-dir>/
+outputs_scope_bdbr/
 ├── collected_results.csv
 ├── interpolated_equal_rate_points.csv
 ├── interpolation_status.csv
@@ -330,39 +312,31 @@ Outputs include:
 ├── bdbr_summary.csv
 ├── diagnostics.txt
 └── latex/
-    ├── bdbr_summary.tex
-    └── interpolated_<codec>.tex
 ```
 
-### 🔎 Data provenance warning
+**Cheng** is included only for SCOPE against direct compression in the integrated analysis. The **JPEG2000** cross-family conditioning study is handled separately. The paper's external TSW-pre comparison comes from published data rather than a local SCOPE training run.
 
-The result collector recursively searches **every `summary.json`** beneath the supplied input directories. This can include previous results even when their experiments have since been removed from active YAML configurations. Classification can also depend on experiment names and source labels.
+## 🗂️ 8. Other analyses and figures
 
-Before reporting a number, examine `collected_results.csv`: verify `summary_path`, `experiment`, `codec`, `detector`, `curve_type`, `ablation_key`, `AP`, and `dataset_bpp` for every included point. Do not combine results from unrelated SCOPE checkpoints under one `full` curve. A plot labeled "SCOPE" does not itself establish that all underlying rows used the same training run.
-
-## 🗂️ 9. Category/severity results and qualitative figures
-
-`scope/evaluation/rate_distortion.py` works from saved `predictions_coco.json` and reports category/severity breakdowns; it is separate from the main BDBR computation.
+| File | Purpose |
+|:--|:--|
+| `scope/evaluation/rate_distortion.py` | COCO metrics broken down by codec, category/supercategory and severity. |
+| `scope/evaluation/visualize.py` | Side-by-side qualitative compressed-image detection panels. |
+| `scope/evaluation/timing.py` | Image pre-editing timing across family/severity conditions. |
+| `scope/evaluation/roi_codec_model.py` | Optional ROI codec components. |
+| `scope/evaluation/roi_utils.py` | Optional ROI geometry and masks. |
+| `scope/evaluation/tile_utils.py` | Optional tile-level utilities. |
 
 ```bash
-python -m scope.evaluation.rate_distortion --help
-python -m scope.evaluation.visualize --help
+python evaluation/evaluate_categories.py --help
+python evaluation/visualize_results.py --help
+python evaluation/benchmark_scope.py --config configs/timing.yaml
 ```
 
-Standalone plotting scripts for paper-only overlays are **not part of the documented core package**. Where literature curves are digitized or transformed, their provenance and calibration must be disclosed rather than treating them as measured SCOPE results.
+Runtime measurements characterize the **pre-editor**, not complete end-to-end codec encoding, transmission, and detector execution.
 
-## ⏱️ 10. Runtime measurement
+## 📚 9. Further reading
 
-```bash
-python -m scope.evaluation.timing \
-  --config configs/timing.yaml \
-  --warmup 20 --repeat 5 --limit 100
-```
-
-This benchmarks SCOPE pre-editing and associated conversion steps where requested. It does **not** benchmark the full image compression + decoder + detector pipeline. `--limit` reduces the timing workload, **not** the number of images used in a valid COCO AP evaluation.
-
-## ✅ 11. Manual validation and reporting
-
-With the public-facing `tests/` and `tools/` directories removed, use [🔎 TESTING.md](TESTING.md) for dependency checks, configuration validation, short smoke-run guidance, and result inspection. There is **no bundled automatic path/call auditor** in this layout.
-
-For paper reproduction, record the exact COCO split, trained checkpoint, conditioning family, codec parameters, measured bpp, detector architecture/weights, BDBR interpolation method, and common AP interval. The presence of an output file alone does not establish metric correctness.
+- [🏠 README](../README.md) — overview, results and quick start.
+- [✅ Reproduce and verify](TESTING.md) — the recommended experimental sequence and output checks.
+- 📄 **Paper:** official proceedings link coming soon.
