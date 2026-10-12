@@ -10,7 +10,7 @@ Silvia Dani, Leonardo Galteri, Marco Bertini
 The pre-editor learns to **protect object-relevant information** while simplifying less important background content, making images easier to compress without sacrificing the visual cues needed for detection.
 
 > 📄 **Paper:** Proceedings link will be added once available.  
-> 🧠 **Pretrained checkpoint:** [Google Drive](https://drive.google.com/drive/folders/1LFbt_ZrvPJgfbSr174lVPzxeQEkMO0Uz?usp=sharing)  
+> 🧠 **Pretrained weights (full model + ablations):** [Google Drive](https://drive.google.com/drive/folders/1YbB1M0Bdp1QZl-aoGNWCCsJRMgzROGES?usp=sharing)  
 > 💻 **Code:** [SilviaDani/SCOPE](https://github.com/SilviaDani/SCOPE)
 
 ## ✨ Highlights
@@ -115,46 +115,75 @@ The top-level `training/`, `evaluation/`, and `analysis/` files provide **direct
 
 ## ⚙️ Installation
 
-Clone the project and install dependencies:
+**Use both installation files, in this order** (Linux with an NVIDIA GPU and a compatible CUDA driver):
 
 ```bash
-# Clone and enter the repository
 git clone https://github.com/SilviaDani/SCOPE.git
 cd SCOPE
 
-# Option A: existing compatible PyTorch / CUDA environment
+# 1. Create the Conda environment, including its pinned PyTorch/CUDA
+#    stack, scientific packages, CompressAI and Diff-JPEG.
+conda env create -f environment.yml
+conda activate d2_scope
+
+# 2. Install the complementary pip requirements (including
+#    Ultralytics/YOLO26, PyYAML and runtime utilities).
 pip install -r requirements.txt
 
-# Option B: Conda environment (alternative)
-# conda env create -f environment.yml
-# conda activate d2_scope
+# 3. Detectron2 is not listed in either file; it is required for
+#    training with the frozen Faster R-CNN and for Faster R-CNN evaluation.
+pip install 'git+https://github.com/facebookresearch/detectron2.git'
 ```
 
-Training additionally uses **Detectron2** and a differentiable JPEG backend. Install builds compatible with your PyTorch/CUDA environment. Real BPG and JPEG2000 compression requires the external `bpgenc`/`bpgdec` and `opj_compress`/`opj_decompress` executables, respectively.
+`environment.yml` and `requirements.txt` **are not alternatives**: the YAML contains Conda dependencies *and its own pip section* (including PyTorch 2.4.1 / CUDA 12.1 wheels and Diff-JPEG); `requirements.txt` supplies additional pip packages. Some dependencies overlap. The Detectron2 source build must match the installed PyTorch/CUDA toolchain (see its [installation guide](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md)); adapt the environment if your GPU/driver does not support this stack.
 
-### 📦 Data and weights
+Verify the Python environment before downloading models:
 
-Download [COCO 2017](https://cocodataset.org/#download) and prepare image directories and instance-annotation JSON files. For the default configuration layout:
+```bash
+python -c "import torch, yaml, ultralytics, compressai, pycocotools; print('torch:', torch.__version__, '| CUDA:', torch.cuda.is_available())"
+python -c "import detectron2; print('Detectron2 import: OK')"
+python tools/validate_environment.py --mode static
+```
+
+For **real BPG** compression, install the external [`bpgenc` and `bpgdec` tools](https://www.bellard.org/bpg/). For **JPEG2000 transfer experiments only**, install [OpenJPEG](https://github.com/uclouvain/openjpeg) (`opj_compress` and `opj_decompress`). These programs are *not* installed by either Python dependency file. Check them with `command -v bpgenc`, `command -v bpgdec`, and (when needed) `command -v opj_compress` / `command -v opj_decompress`.
+
+### 📦 What to download before training or evaluation
+
+| Asset | Training from scratch | Main YOLO26x evaluation | RT-DETR-l / Faster R-CNN evaluation |
+|:--|:--:|:--:|:--:|
+| **[COCO 2017 images + instance annotations](https://cocodataset.org/#download)** | Train **and** validation | Validation | Validation and the saved reconstructions from YOLO evaluation |
+| **[Faster R-CNN X101-FPN weights](https://github.com/facebookresearch/detectron2/blob/main/MODEL_ZOO.md)** | ✅ Frozen teacher; model zoo downloads if not provided | — | ✅ Faster R-CNN only; model zoo downloads if not provided |
+| **[Full/ablated SCOPE checkpoints (Drive)](https://drive.google.com/drive/folders/1YbB1M0Bdp1QZl-aoGNWCCsJRMgzROGES?usp=sharing)** | **Not needed** | ✅ Unless you trained your own | Already applied during YOLO evaluation; no SCOPE weight needed to re-score saved images |
+| **[YOLO26x `yolo26x.pt`](https://docs.ultralytics.com/models/yolo26/)** | — | ✅ (`models/yolo26x.pt`) | — |
+| **[RT-DETR-l `rtdetr-l.pt`](https://docs.ultralytics.com/models/rtdetr/)** | — | — | ✅ RT-DETR-l only |
+| **BPG `bpgenc` / `bpgdec`** | Not needed (differentiable proxy) | ✅ For BPG experiments | Not needed for already reconstructed images |
+| **OpenJPEG binaries** | Not needed | JPEG2000 transfer config only | Not needed for already reconstructed images |
+| **CompressAI pretrained BMSHJ / Cheng weights** | ✅ BMSHJ proxy | ✅ BMSHJ and Cheng experiments | Not needed for saved-image scoring |
+
+CompressAI downloads its pretrained codec weights automatically on first use if they are not cached. Detectron2's model-zoo weights are also retrieved automatically by default. Run the initial setup with internet access, or arrange the required weight caches/files for an offline machine. The differentiable JPEG backend is installed from GitHub by `environment.yml`.
+
+Prepare the **COCO 2017 `train2017.zip`, `val2017.zip`, and `annotations_trainval2017.zip`** archives from the [official download page](https://cocodataset.org/#download). Extract them, then organize or symlink the images and instance annotations into this layout (or edit the YAML and training environment variables to use your existing paths):
 
 ```text
-datasets/coco-2017/train/data/
-datasets/coco-2017/train/labels.json
-datasets/coco-2017/validation/data/
-datasets/coco-2017/validation/labels.json
-models/yolo26x.pt
+datasets/coco-2017/
+├── train/
+│   ├── data/                  # extracted train2017 images
+│   └── labels.json            # instances_train2017.json
+└── validation/
+    ├── data/                  # extracted val2017 images
+    └── labels.json            # instances_val2017.json
+models/
+├── yolo26x.pt                 # YOLO26x COCO detection weights
+└── rtdetr-l.pt                # RT-DETR-l COCO detection weights (for saved-image evaluation)
 ```
 
-Alternatively, adapt the dataset and detector paths in `configs/*.yaml` and the training paths with the environment variables below.
-
-**Default: full SCOPE.** All three supplied YAMLs (`eval.yaml`, `ablation.yaml`, and `timing.yaml`) use the full-model checkpoint:
+**Default: full SCOPE.** Download the full model from the **[SCOPE pretrained weights folder (full model + all ablations)](https://drive.google.com/drive/folders/1YbB1M0Bdp1QZl-aoGNWCCsJRMgzROGES?usp=sharing)** and put its `best_val.pt` at:
 
 ```text
 runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt
 ```
 
-Download the **full SCOPE** weights from the [Google Drive folder](https://drive.google.com/drive/folders/1LFbt_ZrvPJgfbSr174lVPzxeQEkMO0Uz?usp=sharing) and place `best_val.pt` at that path, or change `scope_common.scope_ckpt` in the YAML to the location where you saved it. The full model uses three trained codec families: `diff_jpeg`, `bmshj`, and `bpg_like`.
-
-The Drive folder is also intended to provide **ablated checkpoints**. To evaluate another variant, make a *copy* of the relevant YAML and change **both** `scope_common.scope_ckpt` and `output_dir`; check that model architecture and the actual inference conditioning inputs match the selected checkpoint. **The current inference runner always supplies family and severity; changing `condition_mode` alone does not reproduce family-only/severity-only variants.** Keep each variant's outputs in a separate directory so BDBR analysis does not mix results. See [📖 Choosing weights and configurations](docs/PIPELINE.md#choosing-weights-and-configurations).
+All shipped evaluation YAMLs use that checkpoint by default. If your weights are stored elsewhere, change `scope_common.scope_ckpt` in the relevant YAML. For an ablation, copy the YAML and update **both** `scope_common.scope_ckpt` and `output_dir`; verify its model architecture and conditioning inputs. Changing `condition_mode` alone does not implement family-only or severity-only inference. See [📖 Choosing weights and configurations](docs/PIPELINE.md#choosing-weights-and-configurations) and the [✅ full download/setup walkthrough](docs/TESTING.md).
 
 ## 🚀 Train from scratch
 
@@ -198,19 +227,19 @@ Each experiment saves **reconstructed images**, COCO-format **predictions**, **b
 ```bash
 # RT-DETR on the saved decoded images
 python evaluation/evaluate_rtdetr_l_saved.py \
-  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --source-eval-dir outputs_scope_full_main \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
-  --detector-weights PATH_TO_RTDETR_WEIGHTS \
+  --detector-weights models/rtdetr-l.pt \
   --category-map coco91 \
-  --output-dir PATH_TO_RTDETR_RESULTS
+  --output-dir outputs_scope_full_rtdetr_l
 
 # Faster R-CNN ResNeXt-101-32x8d-FPN (Detectron2)
 python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py \
-  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --source-eval-dir outputs_scope_full_main \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
-  --output-dir PATH_TO_FASTERRCNN_RESULTS
+  --output-dir outputs_scope_full_fasterrcnn_x101_fpn
 ```
 
 ## 📈 BDBR analysis
@@ -221,8 +250,8 @@ After evaluating each detector on the same reconstructed images, calculate rate�
 python analysis/compute_bdbr.py \
   --detector-dir \
     full:yolo=outputs_scope_full_main \
-    full:rtdetr=PATH_TO_RTDETR_RESULTS \
-    full:fastrcnn=PATH_TO_FASTERRCNN_RESULTS \
+    full:rtdetr=outputs_scope_full_rtdetr_l \
+    full:fastrcnn=outputs_scope_full_fasterrcnn_x101_fpn \
   --annotations-json datasets/coco-2017/validation/labels.json \
   --table-methods full \
   --out-dir outputs_scope_bdbr

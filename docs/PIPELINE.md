@@ -35,7 +35,7 @@ The final edit blends both branches using `A`. It is then passed to an **ordinar
 3. **Sample a condition:** select a training codec family and compression severity.
 4. **Pre-edit:** run the FiLM-conditioned image network and combine its attention/residual outputs.
 5. **Proxy-compress:** pass the edited image through the selected differentiable codec proxy.
-6. **Compute losses:** encourage attention in relevant regions, background simplification, residual regularity, and consistency with features from a frozen Faster R-CNN teacher.
+6. **Compute losses:** supervise object attention; encourage background simplification and compressibility; regularize residual magnitude; and preserve object-related features through the frozen Faster R-CNN teacher.
 7. **Optimize SCOPE:** backpropagate the losses to the pre-editor; validate and write checkpoints.
 
 **At inference**, the masks, boxes, teacher, and differentiable compression proxies are not needed. SCOPE produces an image that can be encoded by a real codec.
@@ -112,44 +112,86 @@ python tools/validate_environment.py --mode static
 
 Full model/data checks are described in [✅ Testing](TESTING.md).
 
-## 📦 3. Data, dependencies and model weights
+## 📦 3. Environment, datasets and pretrained weights
 
-### Installation
+### Install both dependency files (in order)
+
+From a fresh clone, first create and activate the Conda environment, then install the additional pip dependencies:
 
 ```bash
 git clone https://github.com/SilviaDani/SCOPE.git
 cd SCOPE
+conda env create -f environment.yml
+conda activate d2_scope
 pip install -r requirements.txt
 ```
 
-`environment.yml` offers an alternative CUDA-oriented Conda environment. Training with the paper's frozen teacher additionally needs **Detectron2** with a suitable CUDA/PyTorch build and the differentiable JPEG implementation. BPG/JPEG2000 require command-line codec tools, which are external to the Python package:
+**Both commands are required.** `environment.yml` defines Python 3.10, native/scientific packages, CUDA tooling, and an embedded pip section containing PyTorch 2.4.1 / CUDA 12.1 wheels, CompressAI and the differentiable [Diff-JPEG](https://github.com/necla-ml/Diff-JPEG) implementation. `requirements.txt` adds the pip-side dependencies needed by the public evaluation programs, notably Ultralytics and PyYAML (with some package overlap).
+
+**Detectron2 is installed separately**, after the steps above, because the paper's frozen teacher and Faster R-CNN evaluator use Detectron2's X101-FPN COCO model:
 
 ```bash
-command -v bpgenc
-command -v bpgdec
-command -v opj_compress
-command -v opj_decompress
+pip install 'git+https://github.com/facebookresearch/detectron2.git'
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+python -c "import detectron2; print('Detectron2 import: OK')"
 ```
 
-### Data layout
+Detectron2 is compiled against your installed Torch/CUDA stack; follow the [official build requirements](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md) if your driver, GPU, or local CUDA toolkit differs. The standard CPU-only environment is not the paper's GPU experiment setup.
 
-Download COCO 2017 from the [official website](https://cocodataset.org/#download). You may use the default layout below or point the YAML/launcher to your own folders:
+**External real-codec programs** (not pip/Conda Python dependencies):
+
+| Evaluation | Required executable(s) | Source |
+|:--|:--|:--|
+| Real JPEG | None; uses image codec libraries | Built-in evaluation path |
+| Real BPG | `bpgenc`, `bpgdec` | [BPG project](https://www.bellard.org/bpg/) |
+| JPEG2000 transfer in `configs/ablation.yaml` | `opj_compress`, `opj_decompress` | [OpenJPEG](https://github.com/uclouvain/openjpeg) |
+| BMSHJ and Cheng | No external executable; pretrained CompressAI models | [CompressAI](https://github.com/InterDigitalInc/CompressAI) |
+
+```bash
+command -v bpgenc && command -v bpgdec
+# Required only for the JPEG2000 transfer study:
+command -v opj_compress && command -v opj_decompress
+```
+
+### Downloads before training
+
+- **COCO 2017 `train2017.zip` + `val2017.zip` + `annotations_trainval2017.zip`** from the [official COCO downloads](https://cocodataset.org/#download), including the **instance** annotation JSON files. Training needs the training split and, with the supplied shell launcher, validation too.
+- **Detectron2 Faster R-CNN X101-32x8d-FPN COCO pretrained weights:** the supplied shell uses `COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml` and downloads the model-zoo checkpoint when `D2_WEIGHTS` is empty. Set `D2_WEIGHTS=/path/to/model.pkl` to avoid a model-zoo download. This is a frozen teacher, not an SCOPE checkpoint.
+- **Differentiable JPEG** is installed through the Conda YAML's pip section, and **CompressAI BMSHJ pretrained weights** are fetched/cached automatically at first use. The BPG-like training proxy needs **no** `bpgenc` binary.
+- **No existing SCOPE checkpoint is needed** to train from scratch.
+
+### Downloads before evaluation
+
+| Evaluation step | Required inputs / downloads |
+|:--|:--|
+| **Main YOLO26x codec evaluation** | COCO 2017 **validation** images and instance annotations; `models/yolo26x.pt` [YOLO26x weights](https://docs.ultralytics.com/models/yolo26/); [full SCOPE or selected ablation checkpoint](https://drive.google.com/drive/folders/1YbB1M0Bdp1QZl-aoGNWCCsJRMgzROGES?usp=sharing); `bpgenc`/`bpgdec` for BPG; CompressAI's pretrained BMSHJ and Cheng weights are fetched automatically if missing. |
+| **JPEG2000 transfer** | The same COCO validation data, YOLO26x and SCOPE weights, plus `opj_compress`/`opj_decompress` from OpenJPEG; uses `configs/ablation.yaml`. |
+| **RT-DETR-l on saved reconstructions** | COCO validation annotations, the **completed reconstruction folders** from the main YOLO evaluation, and [`rtdetr-l.pt`](https://docs.ultralytics.com/models/rtdetr/). Compression does **not** need to be rerun. |
+| **Faster R-CNN on saved reconstructions** | COCO validation annotations, the same **saved reconstructions**, and Detectron2's Faster R-CNN X101-FPN model-zoo weights (or a local checkpoint). Compression does **not** need to be rerun. |
+| **BDBR analysis** | Completed detector evaluation result folders with `summary.json` / `bandwidth.csv`; no new model weights required. |
+
+### COCO and detector paths
+
+Extract the standard COCO archives and either use your existing data locations in `configs/*.yaml` and `TRAIN_IMAGES`/`TRAIN_JSON`/`VAL_IMAGES`/`VAL_JSON`, or arrange the files in the repository's default layout:
 
 ```text
 datasets/coco-2017/
 ├── train/
-│   ├── data/                  # COCO training images
-│   └── labels.json           # COCO instance annotations for train
+│   ├── data/                  # train2017 images
+│   └── labels.json            # instances_train2017.json
 └── validation/
-    ├── data/                  # COCO validation images
-    └── labels.json           # COCO instance annotations for validation
+    ├── data/                  # val2017 images
+    └── labels.json            # instances_val2017.json
+models/
+├── yolo26x.pt                 # for main COCO evaluations
+└── rtdetr-l.pt                # for RT-DETR-l saved-image evaluation
 ```
 
-For YOLO26x, the default configuration refers to `models/yolo26x.pt`. The three evaluation YAMLs default to the same **full SCOPE** checkpoint (`runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt`). You may download its weights from [Google Drive](https://drive.google.com/drive/folders/1LFbt_ZrvPJgfbSr174lVPzxeQEkMO0Uz?usp=sharing), place them at the configured path, or edit `scope_common.scope_ckpt` to their actual location. Training from scratch is also supported.
+The files inside the dataset directory may be symlinks to an existing COCO installation. The config's `models.server_model` defaults to `models/yolo26x.pt`. Obtain the YOLO26x and RT-DETR-l COCO detection weights from [Ultralytics YOLO26](https://docs.ultralytics.com/models/yolo26/) and [Ultralytics RT-DETR](https://docs.ultralytics.com/models/rtdetr/), respectively. Both detectors support automated weight retrieval through their Python library when instantiated by model name, but save the files at the explicit paths above for these scripts.
 
 ### Choosing weights and configurations
 
-All three shipped configurations evaluate the **full model**, not an ablated variant:
+All three shipped configurations use the **full SCOPE** checkpoint as their default. The **[SCOPE Google Drive folder](https://drive.google.com/drive/folders/1YbB1M0Bdp1QZl-aoGNWCCsJRMgzROGES?usp=sharing)** contains the **full model and ablated variants**; the weight files are not stored in this Git repository.
 
 | YAML | Default output directory | Default checkpoint |
 |:--|:--|:--|
@@ -157,22 +199,15 @@ All three shipped configurations evaluate the **full model**, not an ablated var
 | `configs/ablation.yaml` | `outputs_scope_full_jpeg2000` | Full SCOPE |
 | `configs/timing.yaml` | `outputs_scope_full_timing` | Full SCOPE |
 
-Each YAML defines a `scope_common` anchor containing `scope_ckpt`, network architecture parameters, and `condition_mode`, which are inherited by the SCOPE experiments. The default checkpoint path is:
+By default, `scope_common.scope_ckpt` points to:
 
 ```text
 runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt
 ```
 
-The linked Drive folder is also intended to distribute **training/conditioning ablation checkpoints**. The YAMLs are *examples of the full-model setup*, not universal settings for every checkpoint. To run an ablation:
+To evaluate a different checkpoint, **copy** the relevant YAML (for example, `configs/eval_family_only.yaml`), update `scope_common.scope_ckpt`, and use a distinct `output_dir` (for example, `outputs_scope_family_only_main`). Confirm that architecture parameters and actual conditioning inputs are compatible with that checkpoint. The current inference path passes both family and severity; setting `condition_mode` alone does not recreate the family-only or severity-only ablations. Read the checkpoint's saved hyperparameters and match its evaluation procedure. Keep results from different checkpoints in separate directories for fair BDBR comparisons.
 
-1. Copy the corresponding YAML to a new file (for example, `configs/eval_family_only.yaml`), keeping the original full-model config unchanged.
-2. Change `scope_common.scope_ckpt` to the downloaded ablated `best_val.pt` file, and change `output_dir` to a **new, variant-specific directory** (for example, `outputs_scope_family_only_main`).
-3. Match architecture parameters (`base_ch`, attention/background settings, etc.) and the **actual conditioning inputs** to the chosen checkpoint's training setup. The current SCOPE inference path always passes **both** codec-family and severity to the model; merely changing the YAML `condition_mode` field does **not** switch off a conditioning input. Reproducing a family-only or severity-only ablation may therefore require a matching inference implementation/adapter, not just selecting different weights. Inspect the checkpoint's saved training arguments and use the evaluation procedure corresponding to that variant.
-4. Use the resulting directory when calling detector-transfer or BDBR scripts, with the correct method label (`full`, `no_task`, `no_bg`, etc.). Never combine partial outputs from different checkpoints in one output directory.
-
-`configs/ablation.yaml` covers **JPEG2000 codec-family transfer using full SCOPE**, which is distinct from the **training-objective/conditioning ablations** that require separately trained weights.
-
-These paths are relative to the repository root; checkpoint files and datasets are **not** included in the ZIP.
+`configs/ablation.yaml` is for **JPEG2000 transfer using full SCOPE**, not a general configuration for all released ablated checkpoints. All paths shown are relative to the repository root, so invoke the commands from there.
 
 ## 🎛️ 4. Codec families, severity and experiment configs
 
@@ -250,22 +285,22 @@ Re-use the saved reconstructed images, so each detector sees **the same compress
 
 ```bash
 python evaluation/evaluate_rtdetr_l_saved.py \
-  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --source-eval-dir outputs_scope_full_main \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
-  --detector-weights PATH_TO_RTDETR_WEIGHTS \
+  --detector-weights models/rtdetr-l.pt \
   --category-map coco91 \
-  --output-dir PATH_TO_RTDETR_RESULTS
+  --output-dir outputs_scope_full_rtdetr_l
 ```
 
 ### Faster R-CNN (paper-aligned detector)
 
 ```bash
 python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py \
-  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --source-eval-dir outputs_scope_full_main \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
-  --output-dir PATH_TO_FASTERRCNN_RESULTS
+  --output-dir outputs_scope_full_fasterrcnn_x101_fpn
 ```
 
 The paper uses **Faster R-CNN ResNeXt-101-32x8d-FPN**. The `evaluate_fasterrcnn_x101_fpn_saved.py` script selects Detectron2 and `fasterrcnn_x101_fpn` automatically. It uses the Detectron2 model-zoo checkpoint by default; use `--detectron2-weights` for an explicit weight file. A TorchVision ResNet-50 checkpoint is a different detector.
@@ -292,8 +327,8 @@ The BDBR code consumes the measured `summary.json` and `bandwidth.csv` files pro
 python analysis/compute_bdbr.py \
   --detector-dir \
     full:yolo=outputs_scope_full_main \
-    full:rtdetr=PATH_TO_RTDETR_RESULTS \
-    full:fastrcnn=PATH_TO_FASTERRCNN_RESULTS \
+    full:rtdetr=outputs_scope_full_rtdetr_l \
+    full:fastrcnn=outputs_scope_full_fasterrcnn_x101_fpn \
   --annotations-json datasets/coco-2017/validation/labels.json \
   --table-methods full \
   --out-dir outputs_scope_bdbr

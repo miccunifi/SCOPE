@@ -128,9 +128,6 @@ python "${TRAIN_SCRIPT}" \
   --det-mask-blur 41 \
   --attn-area-mult 1.0 \
   \
-  --lambda-obj-l1 0.0 \
-  --lambda-obj-edge 0.0 \
-  --lambda-bg-l1 0.0 \
   --lambda-bg-flat 0.25 \
   --bg-flat-mode blur \
   --lambda-bg-smooth 0.35 \

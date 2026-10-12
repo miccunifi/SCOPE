@@ -24,53 +24,116 @@ python tools/run_full_tests.py \
 
 Strict checks validate module imports, direct CLI paths, each selected model's checkpoint conditioning family, COCO image paths, binary availability and packages. They intentionally fail if required assets/dependencies are missing. Passing these checks is not a substitute for running the full 5,000-image evaluation and comparing the numerical outputs.
 
-## 📦 1. Prepare your environment
+## 📦 1. Install the environment in two steps
+
+Run from a clean checkout on Linux with a compatible NVIDIA GPU/CUDA driver:
 
 ```bash
 git clone https://github.com/SilviaDani/SCOPE.git
 cd SCOPE
+
+# First: Conda environment with CUDA/PyTorch, scientific packages,
+# CompressAI and Diff-JPEG (some via the YAML's own pip section).
+conda env create -f environment.yml
+conda activate d2_scope
+
+# Second: additional pip dependencies, including Ultralytics and PyYAML.
 pip install -r requirements.txt
+
+# Separately install Detectron2 for the frozen training teacher and
+# Faster R-CNN X101-FPN evaluator.
+pip install 'git+https://github.com/facebookresearch/detectron2.git'
+```
+
+The YAML and `requirements.txt` are **complementary**, not alternative installation recipes. The provided environment pins Torch/TorchVision/Torchaudio 2.4.1/0.19.1/2.4.1 and uses the CUDA 12.1 wheel index; verify compatibility with your host NVIDIA driver. Some Python dependencies appear in both files. [Detectron2's build instructions](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md) cover compiler/CUDA mismatches.
+
+Check imports before continuing:
+
+```bash
+python -c "import torch, torchvision, yaml, ultralytics, compressai, pycocotools; print('Torch:', torch.__version__, 'CUDA:', torch.cuda.is_available())"
+python -c "import detectron2; print('Detectron2 import: OK')"
 python training/train_scope.py --help
 python evaluation/evaluate_yolo26x_codecs.py --help
 python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py --help
 ```
 
-For the original training setup, install a Detectron2 version compatible with your installed PyTorch/CUDA and the differentiable JPEG backend. Check external codec tools when using BPG and JPEG2000:
+The **real-codec executables** are separate from the Python environment:
 
 ```bash
+# Required by the BPG experiments in configs/eval.yaml
 command -v bpgenc && command -v bpgdec
+# Required only by the JPEG2000 transfer in configs/ablation.yaml
 command -v opj_compress && command -v opj_decompress
 ```
 
-The repo includes `environment.yml` as an alternative environment specification.
+Install BPG from [Fabrice Bellard's distribution](https://www.bellard.org/bpg/) and OpenJPEG from [the OpenJPEG project](https://github.com/uclouvain/openjpeg). Training uses differentiable surrogates and does **not** require the BPG or JPEG2000 command-line tools.
 
-## 🗂️ 2. Set up COCO and the detectors
+## 🗂️ 2. Download COCO 2017 and detectors
 
-Get [COCO 2017](https://cocodataset.org/#download) images and instance annotations. The default launchers/configs refer to:
+Download **three official COCO files**: [`train2017.zip`](https://images.cocodataset.org/zips/train2017.zip), [`val2017.zip`](https://images.cocodataset.org/zips/val2017.zip), and [`annotations_trainval2017.zip`](https://images.cocodataset.org/annotations/annotations_trainval2017.zip). Extract the images and the two **instance annotation** files. The default repository layout is:
 
 ```text
-datasets/coco-2017/train/data/
-datasets/coco-2017/train/labels.json
-datasets/coco-2017/validation/data/
-datasets/coco-2017/validation/labels.json
-models/yolo26x.pt
+datasets/coco-2017/
+├── train/
+│   ├── data/                # images extracted from train2017.zip
+│   └── labels.json          # annotations/instances_train2017.json
+└── validation/
+    ├── data/                # images extracted from val2017.zip
+    └── labels.json          # annotations/instances_val2017.json
+models/
+├── yolo26x.pt               # COCO-pretrained detection model
+└── rtdetr-l.pt              # COCO-pretrained RT-DETR-l, for saved-image scoring
 ```
 
-If your data uses standard COCO directories such as `train2017` and `val2017`, point the training environment variables and YAML `dataset` fields to those locations. The label files must be **COCO-format instance annotation JSONs**.
+To reuse COCO already extracted in its original directory layout without copying thousands of images, create local symlinks, substituting your real COCO directory for the placeholder:
 
-For the detector-transfer experiments, use the model weights corresponding to the intended Faster R-CNN, RT-DETR-l, and YOLO26x architectures.
+```bash
+COCO_ROOT="$(realpath /path/to/extracted/COCO)"  # contains train2017/, val2017/, annotations/
+mkdir -p datasets/coco-2017/{train,validation}
+ln -s "$COCO_ROOT/train2017" datasets/coco-2017/train/data
+ln -s "$COCO_ROOT/val2017" datasets/coco-2017/validation/data
+ln -s "$COCO_ROOT/annotations/instances_train2017.json" datasets/coco-2017/train/labels.json
+ln -s "$COCO_ROOT/annotations/instances_val2017.json" datasets/coco-2017/validation/labels.json
+```
 
-## 🧠 3. Obtain or train SCOPE weights
+Alternatively, use your COCO directories directly by updating `TRAIN_IMAGES` / `TRAIN_JSON` / `VAL_IMAGES` / `VAL_JSON` when training and `dataset.images_dir` / `dataset.annotations_json` in each YAML when evaluating.
 
-**Option A — released full weights (default):** Download the **full SCOPE** checkpoint from [Google Drive](https://drive.google.com/drive/folders/1LFbt_ZrvPJgfbSr174lVPzxeQEkMO0Uz?usp=sharing). All supplied YAML files already point to:
+### Detector weights
+
+- **[YOLO26x](https://docs.ultralytics.com/models/yolo26/):** use the COCO detection checkpoint `yolo26x.pt` at `models/yolo26x.pt` for the main evaluator.
+- **[RT-DETR-l](https://docs.ultralytics.com/models/rtdetr/):** use `rtdetr-l.pt` (not RT-DETR-x) at `models/rtdetr-l.pt` when running the RT-DETR-l saved-image evaluator, passing it via `--detector-weights`.
+- **[Detectron2 Faster R-CNN ResNeXt-101-32x8d-FPN](https://github.com/facebookresearch/detectron2/blob/main/MODEL_ZOO.md):** the training shell and Faster R-CNN evaluator use `COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml`. They automatically fetch the model-zoo COCO checkpoint when not given a local override; for an offline machine, set `D2_WEIGHTS` for training or `--detectron2-weights` for evaluation.
+
+You can let Ultralytics retrieve its public weights in an internet-connected environment and then place them at the script-specific paths:
+
+```bash
+mkdir -p models
+python - <<'PY'
+from ultralytics import YOLO, RTDETR
+YOLO('yolo26x.pt')
+RTDETR('rtdetr-l.pt')
+PY
+mv -n yolo26x.pt rtdetr-l.pt models/
+```
+
+The `mv` command assumes the two files were downloaded into the repository root and are not already present in `models/`. The source models download automatically when initialized by their standard names. For evaluation, use the *same detector architectures and checkpoints* throughout your comparisons.
+
+## 🧠 3. Obtain full/ablated SCOPE weights or train from scratch
+
+**Option A — released weights (evaluation without training):** Get the **full checkpoint and all ablation checkpoints** from the [SCOPE Google Drive folder](https://drive.google.com/drive/folders/1YbB1M0Bdp1QZl-aoGNWCCsJRMgzROGES?usp=sharing). The three shipped YAML files default to the **full SCOPE** checkpoint:
 
 ```text
 runs/preedit_d2fpn_nojp2_unbiased_linearsev_mediumbpg_sevbasis_scratch_FULL_20260701_140557/best_val.pt
 ```
 
-Place `best_val.pt` there to run without editing the checkpoint paths, or set `scope_common.scope_ckpt` in each YAML to its actual location. The Drive folder is also intended to contain **ablated models**; when selecting an ablated checkpoint, use checkpoint-compatible conditioning/inference and architecture settings, and give its evaluation a new `output_dir` (see [Pipeline documentation](PIPELINE.md#choosing-weights-and-configurations)).
+Place `best_val.pt` at the default location or change `scope_common.scope_ckpt` in each YAML. To use an ablation, **copy** the config, set its own checkpoint path and `output_dir`, and match its architecture and conditioning inputs (see [Pipeline](PIPELINE.md#choosing-weights-and-configurations)). Merely changing `condition_mode` does **not** disable a conditioning branch in the current runner.
 
-**Option B — train from scratch:**
+**Option B — training from scratch:** No SCOPE checkpoint is required. The following are required before launching:
+
+1. **Train and validation COCO images** and instance JSONs (see Section 2).
+2. **Detectron2 and the COCO-pretrained frozen Faster R-CNN X101-FPN teacher** (automatically downloaded from the model zoo if `D2_WEIGHTS` is unset).
+3. **Diff-JPEG** (installed from `environment.yml`) and **pretrained CompressAI BMSHJ models** (downloaded and cached on first use).
+4. A compatible CUDA device and writable `runs/` directory. **No BPG/OpenJPEG executable or YOLO26x/RT-DETR weight is needed to train SCOPE.**
 
 ```bash
 TRAIN_IMAGES=/data/coco/train2017 \
@@ -81,9 +144,9 @@ OUT_DIR=runs/scope_from_scratch \
 bash training/train_scope.sh
 ```
 
-When training completes, use the checkpoint stored in the output directory, typically `runs/scope_from_scratch/best_val.pt`.
+The training script saves its own SCOPE checkpoint under the chosen run directory (for example `runs/scope_from_scratch/best_val.pt`). The full released model conditions on `diff_jpeg`, `bmshj`, and `bpg_like`.
 
-The released model is conditioned on **three** training codec families: `diff_jpeg`, `bmshj`, and `bpg_like`.
+**Downloads required for evaluation:** main codec curves additionally need **YOLO26x**, **BPG binaries**, the chosen **SCOPE checkpoint**, and **CompressAI pretrained weights** for BMSHJ/Cheng (downloaded on demand). `configs/ablation.yaml` additionally needs **OpenJPEG binaries**. RT-DETR-l and Faster R-CNN saved-image evaluations additionally need **their own detector checkpoints** and the completed reconstructions; no codec rerun is required. BDBR only needs completed experiment summaries.
 
 ## 🎛️ 4. Configure your evaluation
 
@@ -142,21 +205,21 @@ Inspect the configured `output_dir` for:
 ```bash
 # RT-DETR-l
 python evaluation/evaluate_rtdetr_l_saved.py \
-  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --source-eval-dir outputs_scope_full_main \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
-  --detector-weights PATH_TO_RTDETR_WEIGHTS \
+  --detector-weights models/rtdetr-l.pt \
   --category-map coco91 \
-  --output-dir PATH_TO_RTDETR_RESULTS
+  --output-dir outputs_scope_full_rtdetr_l
 ```
 
 ```bash
 # Faster R-CNN ResNeXt-101-32x8d-FPN (Detectron2)
 python evaluation/evaluate_fasterrcnn_x101_fpn_saved.py \
-  --source-eval-dir PATH_TO_YOLO_RESULTS \
+  --source-eval-dir outputs_scope_full_main \
   --images-dir datasets/coco-2017/validation/data \
   --annotations-json datasets/coco-2017/validation/labels.json \
-  --output-dir PATH_TO_FASTERRCNN_RESULTS
+  --output-dir outputs_scope_full_fasterrcnn_x101_fpn
 ```
 
 All detector comparisons should use identical reconstructed images, COCO annotations, and consistent COCO category-ID mapping.
@@ -167,8 +230,8 @@ All detector comparisons should use identical reconstructed images, COCO annotat
 python analysis/compute_bdbr.py \
   --detector-dir \
     full:yolo=outputs_scope_full_main \
-    full:rtdetr=PATH_TO_RTDETR_RESULTS \
-    full:fastrcnn=PATH_TO_FASTERRCNN_RESULTS \
+    full:rtdetr=outputs_scope_full_rtdetr_l \
+    full:fastrcnn=outputs_scope_full_fasterrcnn_x101_fpn \
   --annotations-json datasets/coco-2017/validation/labels.json \
   --table-methods full \
   --out-dir outputs_scope_bdbr

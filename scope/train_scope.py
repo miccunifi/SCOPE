@@ -265,16 +265,13 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument("--attn-area-mult", type=float, default=1.0)
 
-    p.add_argument("--lambda-obj-l1", type=float, default=4.0)
-    p.add_argument("--lambda-obj-edge", type=float, default=3.0)
-    p.add_argument("--lambda-bg-l1", type=float, default=0.0)
     p.add_argument(
         "--lambda-bg-flat",
         type=float,
         default=0.75,
         help=(
-            "Weight for forcing background toward a cheap low-frequency/flat target. "
-            "Unlike lambda-bg-l1, this does not preserve clean background appearance."
+            "Weight for pushing background regions toward a cheap low-frequency/flat target "
+            "rather than matching the clean background."
         ),
     )
     p.add_argument(

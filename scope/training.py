@@ -19,7 +19,7 @@ from .data import CocoBoxCropDataset
 from .teachers import FrozenDetectron2FPNConsistency, FrozenYOLOFeatureConsistency
 from .codecs import RealCodecProxyManager, codec_proxy_batch
 from .model import SCOPE
-from .losses import attention_loss, background_simplified_target, sobel_edges, soften_mask, tv_loss, weighted_l1, weighted_mean
+from .losses import attention_loss, background_simplified_target, soften_mask, tv_loss, weighted_l1, weighted_mean
 from .conditioning import (
     build_codec_family_mapping,
     normalize_severity_tensor,
@@ -87,9 +87,6 @@ def format_live_metrics(
 ) -> str:
     keys = [
         "loss",
-        "obj_l1",
-        "obj_edge",
-        "bg_l1",
         "bg_flat",
         "rate",
         "attn_mean",
@@ -191,18 +188,6 @@ def compute_losses(
         )
         codec_bpp = images.new_tensor(0.0)
 
-    # Object preservation after compression.
-    obj_l1 = weighted_l1(compressed_edited, images, attn_target)
-
-    # Edge preservation on objects, useful for detection-like features.
-    edge_clean = sobel_edges(images).detach()
-    edge_comp = sobel_edges(compressed_edited)
-    obj_edge = weighted_l1(edge_comp, edge_clean, attn_target)
-
-    # Diagnostic only if lambda_bg_l1=0.
-    # Use this only if you want visual similarity of the background to clean.
-    bg_l1 = weighted_l1(edited, images, bg_mask)
-
     # Optional low-frequency/flat background target.
     # This is the key non-conservative background objective: it does NOT force
     # the background to match the clean image; it pushes it toward a cheaper
@@ -263,10 +248,7 @@ def compute_losses(
     )
 
     loss = (
-        (args.lambda_obj_l1 * task_mult) * obj_l1
-        + (args.lambda_obj_edge * task_mult) * obj_edge
-        + args.lambda_bg_l1 * bg_l1
-        + (args.lambda_bg_flat * bg_mult) * bg_flat
+        (args.lambda_bg_flat * bg_mult) * bg_flat
         + (args.lambda_bg_smooth * bg_mult) * bg_smooth
         + (args.lambda_rate * rate_mult) * rate_proxy
         + args.lambda_attn * attn_loss
@@ -285,9 +267,6 @@ def compute_losses(
 
     logs = {
         "loss": loss.detach(),
-        "obj_l1": obj_l1.detach(),
-        "obj_edge": obj_edge.detach(),
-        "bg_l1": bg_l1.detach(),
         "bg_flat": bg_flat.detach(),
         "bg_smooth": bg_smooth.detach(),
         "rate": rate_proxy.detach(),
@@ -487,9 +466,6 @@ def print_and_assert_critical_config(args: argparse.Namespace) -> None:
         "attn_blur",
         "det_mask_blur",
         "attn_area_mult",
-        "lambda_obj_l1",
-        "lambda_obj_edge",
-        "lambda_bg_l1",
         "lambda_bg_flat",
         "bg_flat_mode",
         "lambda_bg_smooth",
@@ -501,8 +477,6 @@ def print_and_assert_critical_config(args: argparse.Namespace) -> None:
         "lambda_delta_tv",
         "lambda_det",
         "detector_backend",
-        "lambda_obj_l1",
-        "lambda_obj_edge",
         "lambda_bg_flat",
         "lambda_bg_smooth",
         "lambda_rate",
@@ -547,9 +521,6 @@ def print_and_assert_critical_config(args: argparse.Namespace) -> None:
         "attn_blur": 3,
         "det_mask_blur": 31,
         "attn_area_mult": 1.0,
-        "lambda_obj_l1": 4.0,
-        "lambda_obj_edge": 3.0,
-        "lambda_bg_l1": 0.0,
         "lambda_bg_flat": 0.75,
         "lambda_bg_smooth": 1.0,
         "lambda_rate": 2.0,
