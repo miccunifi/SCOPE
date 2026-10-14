@@ -24,28 +24,23 @@ python tools/run_full_tests.py \
 
 Strict checks validate module imports, direct CLI paths, each selected model's checkpoint conditioning family, COCO image paths, binary availability and packages. They intentionally fail if required assets/dependencies are missing. Passing these checks is not a substitute for running the full 5,000-image evaluation and comparing the numerical outputs.
 
-## 📦 1. Install the environment in two steps
+## 📦 1. Install Python dependencies
 
-Run from a clean checkout on Linux with a compatible NVIDIA GPU/CUDA driver:
+Use Python 3.10 on Linux with a compatible NVIDIA driver. **`requirements.txt` is the only Python dependency manifest**. It includes PyTorch, torchvision, Ultralytics, CompressAI, Diff-JPEG and the scientific packages needed by the pipeline.
 
 ```bash
 git clone https://github.com/SilviaDani/SCOPE.git
 cd SCOPE
-
-# First: Conda environment with CUDA/PyTorch, scientific packages,
-# CompressAI and Diff-JPEG (some via the YAML's own pip section).
-conda env create -f environment.yml
-conda activate d2_scope
-
-# Second: additional pip dependencies, including Ultralytics and PyYAML.
+python3.10 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 
-# Separately install Detectron2 for the frozen training teacher and
-# Faster R-CNN X101-FPN evaluator.
-pip install 'git+https://github.com/facebookresearch/detectron2.git'
+# Build Detectron2 against the installed PyTorch/CUDA stack
+pip install --no-build-isolation 'git+https://github.com/facebookresearch/detectron2.git'
 ```
 
-The YAML and `requirements.txt` are **complementary**, not alternative installation recipes. The provided environment pins Torch/TorchVision/Torchaudio 2.4.1/0.19.1/2.4.1 and uses the CUDA 12.1 wheel index; verify compatibility with your host NVIDIA driver. Some Python dependencies appear in both files. [Detectron2's build instructions](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md) cover compiler/CUDA mismatches.
+You can instead create and activate an empty Python 3.10 Conda environment (`conda create -n d2_scope python=3.10 -y`; `conda activate d2_scope`) and use the same pip installation commands. There is no Conda dependency YAML. PyTorch 2.4.1 / TorchVision 0.19.1 are pinned, and the requirements use the **CUDA 12.1 wheel index**. Detectron2 may also require a system CUDA toolkit (`nvcc`) and a suitable C++ compiler; see its [build instructions](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md).
 
 Check imports before continuing:
 
@@ -132,7 +127,7 @@ Place `best_val.pt` at the default location or change `scope_common.scope_ckpt` 
 
 1. **Train and validation COCO images** and instance JSONs (see Section 2).
 2. **Detectron2 and the COCO-pretrained frozen Faster R-CNN X101-FPN teacher** (automatically downloaded from the model zoo if `D2_WEIGHTS` is unset).
-3. **Diff-JPEG** (installed from `environment.yml`) and **pretrained CompressAI BMSHJ models** (downloaded and cached on first use).
+3. **Diff-JPEG** (installed from `requirements.txt`) and **pretrained CompressAI BMSHJ models** (downloaded and cached on first use).
 4. A compatible CUDA device and writable `runs/` directory. **No BPG/OpenJPEG executable or YOLO26x/RT-DETR weight is needed to train SCOPE.**
 
 ```bash

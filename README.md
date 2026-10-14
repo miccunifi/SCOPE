@@ -107,35 +107,32 @@ SCOPE/
 │   └── images/
 │       ├── scope_architecture.png
 │       └── scope_training_pipeline.png
-├── requirements.txt
-└── environment.yml
+└── requirements.txt
 ```
 
 The top-level `training/`, `evaluation/`, and `analysis/` files provide **direct commands**; the reusable implementations remain in the `scope/` Python package. The separate `tests/` and `tools/` folders are optional checks, not required for inference. See the [📖 pipeline reference](docs/PIPELINE.md) for the complete file-by-file breakdown.
 
 ## ⚙️ Installation
 
-**Use both installation files, in this order** (Linux with an NVIDIA GPU and a compatible CUDA driver):
+**Python 3.10** and a Linux system with an NVIDIA GPU are recommended for reproducing the paper. Install all regular Python dependencies from **`requirements.txt`**; no Conda environment YAML is needed. The requirements pin PyTorch 2.4.1 and TorchVision 0.19.1 and include the CUDA 12.1 wheel index used by the original environment. Confirm that your NVIDIA driver supports this CUDA runtime.
 
 ```bash
 git clone https://github.com/SilviaDani/SCOPE.git
 cd SCOPE
 
-# 1. Create the Conda environment, including its pinned PyTorch/CUDA
-#    stack, scientific packages, CompressAI and Diff-JPEG.
-conda env create -f environment.yml
-conda activate d2_scope
+# Create an isolated Python environment
+python3.10 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
 
-# 2. Install the complementary pip requirements (including
-#    Ultralytics/YOLO26, PyYAML and runtime utilities).
+# All standard Python dependencies, including PyTorch and Diff-JPEG
 pip install -r requirements.txt
 
-# 3. Detectron2 is not listed in either file; it is required for
-#    training with the frozen Faster R-CNN and for Faster R-CNN evaluation.
-pip install 'git+https://github.com/facebookresearch/detectron2.git'
+# Detectron2: install after PyTorch because it builds native extensions
+pip install --no-build-isolation 'git+https://github.com/facebookresearch/detectron2.git'
 ```
 
-`environment.yml` and `requirements.txt` **are not alternatives**: the YAML contains Conda dependencies *and its own pip section* (including PyTorch 2.4.1 / CUDA 12.1 wheels and Diff-JPEG); `requirements.txt` supplies additional pip packages. Some dependencies overlap. The Detectron2 source build must match the installed PyTorch/CUDA toolchain (see its [installation guide](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md)); adapt the environment if your GPU/driver does not support this stack.
+If you prefer Conda, use `conda create -n d2_scope python=3.10 -y` followed by `conda activate d2_scope`, then run the **same pip commands**; no Conda YAML file is required. Detectron2 is installed separately because its build must use the installed PyTorch and CUDA toolkit. This may also require a system C++ compiler and a matching CUDA toolkit (`nvcc`), which pip does not install. See [Detectron2's installation guide](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md). Change the PyTorch CUDA wheel index if your platform requires another CUDA variant.
 
 Verify the Python environment before downloading models:
 
@@ -160,7 +157,7 @@ For **real BPG** compression, install the external [`bpgenc` and `bpgdec` tools]
 | **OpenJPEG binaries** | Not needed | JPEG2000 transfer config only | Not needed for already reconstructed images |
 | **CompressAI pretrained BMSHJ / Cheng weights** | ✅ BMSHJ proxy | ✅ BMSHJ and Cheng experiments | Not needed for saved-image scoring |
 
-CompressAI downloads its pretrained codec weights automatically on first use if they are not cached. Detectron2's model-zoo weights are also retrieved automatically by default. Run the initial setup with internet access, or arrange the required weight caches/files for an offline machine. The differentiable JPEG backend is installed from GitHub by `environment.yml`.
+CompressAI downloads its pretrained codec weights automatically on first use if they are not cached. Detectron2's model-zoo weights are also retrieved automatically by default. Run the initial setup with internet access, or arrange the required weight caches/files for an offline machine. The differentiable JPEG backend is installed from GitHub through `requirements.txt`.
 
 Prepare the **COCO 2017 `train2017.zip`, `val2017.zip`, and `annotations_trainval2017.zip`** archives from the [official download page](https://cocodataset.org/#download). Extract them, then organize or symlink the images and instance annotations into this layout (or edit the YAML and training environment variables to use your existing paths):
 

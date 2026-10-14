@@ -114,31 +114,32 @@ Full model/data checks are described in [✅ Testing](TESTING.md).
 
 ## 📦 3. Environment, datasets and pretrained weights
 
-### Install both dependency files (in order)
+### Install Python dependencies from `requirements.txt`
 
-From a fresh clone, first create and activate the Conda environment, then install the additional pip dependencies:
+Use **Python 3.10** with a compatible NVIDIA driver. All regular Python dependencies (including PyTorch, Ultralytics, CompressAI and Diff-JPEG) are specified in the single `requirements.txt` file:
 
 ```bash
 git clone https://github.com/SilviaDani/SCOPE.git
 cd SCOPE
-conda env create -f environment.yml
-conda activate d2_scope
+python3.10 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
-**Both commands are required.** `environment.yml` defines Python 3.10, native/scientific packages, CUDA tooling, and an embedded pip section containing PyTorch 2.4.1 / CUDA 12.1 wheels, CompressAI and the differentiable [Diff-JPEG](https://github.com/necla-ml/Diff-JPEG) implementation. `requirements.txt` adds the pip-side dependencies needed by the public evaluation programs, notably Ultralytics and PyYAML (with some package overlap).
+To use Conda only as the environment manager, replace the `venv` creation/activation with `conda create -n d2_scope python=3.10 -y` and `conda activate d2_scope`; still install Python dependencies with `pip install -r requirements.txt`. The requirements pin PyTorch 2.4.1 / TorchVision 0.19.1 and point to the **CUDA 12.1 wheel index** used for the original experiments. Adapt that index to your local CUDA/driver setup if necessary.
 
-**Detectron2 is installed separately**, after the steps above, because the paper's frozen teacher and Faster R-CNN evaluator use Detectron2's X101-FPN COCO model:
+**Detectron2 is the separate build step**, required for frozen Faster R-CNN training supervision and saved-image Faster R-CNN scoring:
 
 ```bash
-pip install 'git+https://github.com/facebookresearch/detectron2.git'
+pip install --no-build-isolation 'git+https://github.com/facebookresearch/detectron2.git'
 python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 python -c "import detectron2; print('Detectron2 import: OK')"
 ```
 
-Detectron2 is compiled against your installed Torch/CUDA stack; follow the [official build requirements](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md) if your driver, GPU, or local CUDA toolkit differs. The standard CPU-only environment is not the paper's GPU experiment setup.
+Detectron2 uses native/CUDA extensions, so it may require a matching **system CUDA toolkit (`nvcc`)** and C++ compiler in addition to the pip dependencies. Follow the [official build requirements](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md). GPU reproduction is not guaranteed on an unsupported PyTorch/CUDA combination.
 
-**External real-codec programs** (not pip/Conda Python dependencies):
+**External real-codec programs** (not Python dependencies installed by pip):
 
 | Evaluation | Required executable(s) | Source |
 |:--|:--|:--|
@@ -157,7 +158,7 @@ command -v opj_compress && command -v opj_decompress
 
 - **COCO 2017 `train2017.zip` + `val2017.zip` + `annotations_trainval2017.zip`** from the [official COCO downloads](https://cocodataset.org/#download), including the **instance** annotation JSON files. Training needs the training split and, with the supplied shell launcher, validation too.
 - **Detectron2 Faster R-CNN X101-32x8d-FPN COCO pretrained weights:** the supplied shell uses `COCO-Detection/faster_rcnn_X_101_32x8d_FPN_3x.yaml` and downloads the model-zoo checkpoint when `D2_WEIGHTS` is empty. Set `D2_WEIGHTS=/path/to/model.pkl` to avoid a model-zoo download. This is a frozen teacher, not an SCOPE checkpoint.
-- **Differentiable JPEG** is installed through the Conda YAML's pip section, and **CompressAI BMSHJ pretrained weights** are fetched/cached automatically at first use. The BPG-like training proxy needs **no** `bpgenc` binary.
+- **Differentiable JPEG** is installed through `requirements.txt`, and **CompressAI BMSHJ pretrained weights** are fetched/cached automatically at first use. The BPG-like training proxy needs **no** `bpgenc` binary.
 - **No existing SCOPE checkpoint is needed** to train from scratch.
 
 ### Downloads before evaluation

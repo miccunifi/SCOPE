@@ -1,12 +1,42 @@
-ultralytics
-opencv-python
+# SCOPE Python dependencies (Python 3.10, Linux; tested configuration based on CUDA 12.1)
+# PyTorch GPU wheels; use the matching index for a different CUDA installation.
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1
+
+# Image / data / scientific stack
 numpy
-tqdm
-pyyaml
-pycocotools
-Pillow
-compressai
-torch
-torchvision
-kornia
 scipy
+Pillow
+opencv-python
+pycocotools
+tqdm
+PyYAML
+matplotlib
+pandas
+scikit-image
+
+# Detectors, codecs and training utilities
+ultralytics
+compressai
+kornia
+fvcore
+iopath
+omegaconf
+hydra-core
+yacs
+tabulate
+
+# Build helpers (in particular for native extensions)
+ninja
+cmake
+cython
+
+# Differentiable JPEG training proxy
+git+https://github.com/necla-ml/Diff-JPEG.git
+
+# Detectron2 is built separately AFTER these packages are installed:
+# pip install --no-build-isolation 'git+https://github.com/facebookresearch/detectron2.git'
+# Also install the external BPG / OpenJPEG executables when running those codecs.
